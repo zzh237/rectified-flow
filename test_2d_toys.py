@@ -8,14 +8,12 @@ import sympy
 import matplotlib.pyplot as plt
 from collections import namedtuple
 
-
-from rectified_flow.rectified_flow import AffineInterp,  RectifiedFlow
-from rectified_flow.samplers import EulerSampler, OverShootingSampler, SDESampler
+#from rectified_flow.rectified_flow import AffineInterp,  RectifiedFlow
+#from rectified_flow.samplers import EulerSampler, OverShootingSampler, SDESampler
+from rectified_flow import * 
 import rectified_flow.toys  as toys 
 
 
-#%% 
-#@title train a base RF
 # generate toy data
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
