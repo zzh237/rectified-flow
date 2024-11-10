@@ -251,7 +251,7 @@ class RectifiedFlow:
         if not self.is_pi0_standard_gaussian():
             raise ValueError("pi0 must be a standard Gaussian distribution.")
 
-    def assert_cannonical(self):
+    def assert_canonical(self):
         if not (self.is_pi0_standard_gaussian() and (self.paired==False)):
             raise ValueError('Must be the Cannonical Case: pi0 must be standard Gaussian and the data must be unpaired (independent coupling)')
 
