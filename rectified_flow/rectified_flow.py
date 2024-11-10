@@ -56,19 +56,19 @@ class AffineInterp(nn.Module):
         super().__init__()
         ensure_tensor = self.ensure_tensor
 
-        if (isinstance(alpha, str) and (alpha in ['straight', 'lerp'])) or (alpha is None and beta is None):
+        if (isinstance(alpha, str) and (alpha.lower() in ['straight', 'lerp'])) or (alpha is None and beta is None):
             # Special case for 'straight' interpolation
             alpha = lambda t: t
             beta = lambda t: 1 - t
             self.name = 'straight'
 
-        elif isinstance(alpha, str) and alpha in ['harmonic', 'cos', 'sin', 'slerp', 'spherical']:
+        elif isinstance(alpha, str) and alpha.lower() in ['harmonic', 'cos', 'sin', 'slerp', 'spherical']:
             # Special case of harmonic interpolation
             alpha = lambda t: torch.sin(t * torch.pi/2.0)
             beta = lambda t: torch.cos(t * torch.pi/2.0)
-            self.name = 'harmonic'
+            self.name = 'spherical'
 
-        elif isinstance(alpha, str) and alpha in ['DDIM', 'DDPM', 'ddim', 'ddpm']:
+        elif isinstance(alpha, str) and alpha.lower() in ['ddim', 'ddpm']:
             a = 19.9; b = 0.1
             alpha = lambda t: torch.exp(-a*(1-t)**2/4.0 - b*(1-t)/2.0)
             beta = lambda t: (1-alpha(t)**2)**(0.5)
@@ -79,7 +79,6 @@ class AffineInterp(nn.Module):
 
         self.alpha = lambda t: alpha(self.ensure_tensor(t))
         self.beta = lambda t: beta(self.ensure_tensor(t))
-        self.name = 'affine'
 
         self.solver = AffineInterpSolver()
         self.at = None; self.bt = None; self.dot_at = None; self.dot_bt = None
@@ -92,7 +91,7 @@ class AffineInterp(nn.Module):
         return x
 
     def match_time_dim(self, t, x):
-        # enure that t is [N,...] if x is [N,...]
+        # enure that t is [N,1,1,..] if x is [N,...]
         t = self.ensure_tensor(t)
         while t.dim() < x.dim(): t = t.unsqueeze(-1)
         if t.shape[0] == 1: t = t.expand(x.shape[0], *t.shape[1:])
@@ -158,8 +157,9 @@ def test_affine_interp():
     interp.solve(t,  xt=xt, dot_xt=dot_xt)
     print(interp.x0.shape)
     print(interp.x1.shape)
-#test_affine_interp()
-
+    
+if __name__ == "__main__":
+    test_affine_interp()
 
 
 class RectifiedFlow:
