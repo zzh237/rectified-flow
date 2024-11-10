@@ -111,26 +111,25 @@ class OverShootingSampler(Sampler):
     def step(self, xt, t, t_next, info=None):
         step_size = 1 / self.num_steps
         step_size_overshoot = step_size * self.c
-        t_ones = t * torch.ones(xt.shape[0], 1).to(xt.device)
 
         # Calculate overshoot time and enforce constraints
         t_overshoot = min(self.overshooting(t_next, step_size_overshoot), 1)
-        if t_overshoot < t_next:
-            raise ValueError("t_overshoot cannot be smaller than t_next.")
+
+        if t_overshoot < t_next: raise ValueError("t_overshoot cannot be smaller than t_next.") 
 
         # Predict x1 and store it
-        vt = self.velocity(xt, t_ones.squeeze())
-        x1_pred = xt + (1 - t) * vt
+        vt = self.velocity(xt,  self.rf.match_time_dim(t, xt).squeeze())
 
-        # Advance to t_overshoot
+        # Advance to t_overshoot with ODE 
         xt_overshoot = xt + (t_overshoot - t) * vt
 
-        # Apply noise to step back to t_next
+        # Apply noise to step back to t_next 
         at = self.alpha(t_next) / self.alpha(t_overshoot)
         bt = (self.beta(t_next)**2 - (at * self.beta(t_overshoot))**2)**0.5
         noise = self.rf.sample_x0(xt.shape[0])
         xt = xt_overshoot * at +  noise * bt
-        return xt, x1_pred
+        return xt, vt
+
 
 class SDESampler(Sampler):
     def __init__(self, rf, x0=None, num_steps=100, record_traj_period=1, num_points=100,  seed = None,
