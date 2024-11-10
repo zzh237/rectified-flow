@@ -6,6 +6,7 @@ import torch.distributions as dist
 import sympy
 import matplotlib.pyplot as plt
 from collections import namedtuple
+import warnings 
 
 class AffineInterpSolver:
     def __init__(self):
@@ -33,7 +34,7 @@ class AffineInterpSolver:
         unknown_keys = tuple(unknown_vars.keys())  # No sorting, preserving order
 
         if len(unknown_keys) > 2:
-            raise ValueError("Exactly two of the variables (x0, x1, xt, dot_xt) must be specified.")
+            warnings.warn("At least two variables in (x0, x1, xt, dot_xt) must be specified to use the solver.", UserWarning)
         elif len(unknown_keys) == 0:
             return r
         elif len(unknown_keys) == 1:
