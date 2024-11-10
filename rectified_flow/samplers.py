@@ -4,15 +4,16 @@ import matplotlib.pyplot as plt
 from collections import namedtuple
 
 class Sampler:
-    def __init__(self, rf, x0=None, num_steps=100, record_traj_period=1, num_points=100, seed = None):
+    def __init__(self, rf, x0=None, num_steps=100, record_traj_period=1, num_points=100, seed = None, save_info=False):
         self.rf = rf
         self.velocity = rf.velocity
         self.num_steps = num_steps
         self.record_traj_period = record_traj_period
+        self.save_info = save_info
         self.results = None
         self.alpha = self.rf.interp.alpha
         self.beta = self.rf.interp.beta
-
+                
         # seed
         self.seed = seed
         if seed is not None:
@@ -27,6 +28,7 @@ class Sampler:
 
     def sample(self):
 
+        save_step_grid = list(range(0, self.num_steps + 1, self.record_traj_period)) + ([self.num_steps] if self.num_steps % self.record_traj_period != 0 else [])
         xt = self.x0.clone()
         info_t = None
 
@@ -43,14 +45,16 @@ class Sampler:
                 # Call the specific step function defined in the subclass
                 xt, info_t = self.step(xt, t, t_next, info=info_t)
 
-                time.append(t_next)
-                trajectories.append(xt)
-                info.append(info_t)
+                if step in save_step_grid:
+                    time.append(t_next)
+                    trajectories.append(xt)
+                    if save_info: info.append(info_t)
 
             trajectories = torch.stack(trajectories)
 
         Results = namedtuple('Results', ['xt', 'trajectories', 'info', 'time'])
         self.results = Results(xt, trajectories, info, time)
+        return self 
 
     def plot_2d_results(self, num_trajectories = 50, markersize=3, dimensions=[0,1], alpha_trajectories=0.5, alpha_generated_points=1, alpha_true_points=1):
         dim0 = dimensions[0]; dim1 = dimensions[1]
