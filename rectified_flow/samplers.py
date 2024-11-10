@@ -48,7 +48,7 @@ class Sampler:
                 if step in save_step_grid:
                     time.append(t_next)
                     trajectories.append(xt)
-                    if save_info: info.append(info_t)
+                    if self.save_info: info.append(info_t)
 
             trajectories = torch.stack(trajectories)
 
