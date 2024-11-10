@@ -76,19 +76,19 @@ class EulerSampler(Sampler):
         xt = xt + (t_next - t) * v_t
         return xt, x1_pred
 
+
 class CurvedSampler(Sampler):
     def step(self, xt, t, t_next, info=None):
-
-        t_ones = t * torch.ones(xt.shape[0], 1).to(self.x0.device)
-        vt = self.velocity(xt, t_ones.squeeze())
+        t = self.rf.match_time_dim(t, xt) 
+        vt = self.velocity(xt, t.squeeze())
+        # given xt, and dot_xt = vt, find the corresponding end points x0, x1
         self.rf.interp.solve(t, xt=xt, dot_xt=vt)
         x1_pred = self.rf.interp.x1
         x0_pred = self.rf.interp.x0
-
+        # interplate to find x_{t_next} 
         self.rf.interp.solve(t_next, x0=x0_pred, x1=x1_pred)
         xtnext = self.rf.interp.xt
-        return xt, x1_pred  # Returns updated `xt` and `x1_pred`
-
+        return xtnext, x1_pred  
 
 class OverShootingSampler(Sampler):
     def __init__(self, rf, x0=None, num_steps=100, record_traj_period=1, num_points=100,  seed = None,
