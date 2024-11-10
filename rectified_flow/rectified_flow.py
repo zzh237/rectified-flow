@@ -62,7 +62,7 @@ class AffineInterp(nn.Module):
             beta = lambda t: 1 - t
             self.name = 'straight'
 
-        elif isinstance(alpha, str) and alpha in ['harmonic', 'cos', 'sin', 'slerp']:
+        elif isinstance(alpha, str) and alpha in ['harmonic', 'cos', 'sin', 'slerp', 'spherical']:
             # Special case of harmonic interpolation
             alpha = lambda t: torch.sin(t * torch.pi/2.0)
             beta = lambda t: torch.cos(t * torch.pi/2.0)
