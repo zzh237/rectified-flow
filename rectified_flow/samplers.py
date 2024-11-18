@@ -144,6 +144,21 @@ class EulerSampler(Sampler):
         self.xt = xt + (t_next - t) * vt
         self.t = t_next
 
+class CurvedEulerSampler(Sampler):
+    def step(self):
+
+        t, t_next, xt = self.t, self.t_next, self.xt
+        vt = self.get_velocity()
+
+        self.rf.interp.solve(t, xt=xt, dot_xt=vt)
+        x1_pred = self.rf.interp.x1
+        x0_pred = self.rf.interp.x0
+        # interplate to find x_{t_next}
+        self.rf.interp.solve(t_next, x0=x0_pred, x1=x1_pred)
+        xt = self.rf.interp.xt
+
+        self.xt = xt 
+        self.t = t_next
 
 class NoiseRefreshSampler(Sampler):
     def __init__(self, *args, noise_replacement_rate = lambda t: 0.5, **kwargs):
@@ -173,21 +188,6 @@ class NoiseRefreshSampler(Sampler):
         self.t = t_next
 
 
-class CurvedSampler(Sampler):
-    def step(self):
-
-        t, t_next, xt = self.t, self.t_next, self.xt
-        vt = self.get_velocity()
-
-        self.rf.interp.solve(t, xt=xt, dot_xt=vt)
-        x1_pred = self.rf.interp.x1
-        x0_pred = self.rf.interp.x0
-        # interplate to find x_{t_next}
-        self.rf.interp.solve(t_next, x0=x0_pred, x1=x1_pred)
-        xt = self.rf.interp.xt
-
-        self.xt = xt 
-        self.t = t_next
 
 class OverShootingSampler(Sampler):
     def __init__(self, rf,
