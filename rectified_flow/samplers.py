@@ -145,6 +145,34 @@ class EulerSampler(Sampler):
         self.t = t_next
 
 
+class NoiseRefreshSampler(Sampler):
+    def __init__(self, *args, noise_replacement_rate = lambda t: 0.5, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.noise_replacement_rate = noise_replacement_rate # should be in [0,1]
+        assert (self.rf.paired==False and self.rf.is_pi0_zero_mean_gaussian()==True), 'pi0 must be a zero mean gaussian and must use indepdent coupling'
+
+    def step(self):
+
+        t, t_next, xt = self.t, self.t_next, self.xt
+        vt = self.get_velocity()
+
+        # given xt, and dot_xt = vt, find the corresponding end points x0, x1
+        self.rf.interp.solve(t, xt=xt, dot_xt=vt)
+        x1_pred = self.rf.interp.x1
+        x0_pred = self.rf.interp.x0
+
+        # randomize x0_pred by replacing part of it with new noise
+        noise = rf.sample_x0(xt.shape[0])
+        x0_pred_noise = (1-self.noise_replacement_rate(t)**2)**(0.5) * x0_pred + noise * self.noise_replacement_rate(t)
+
+        # interplate to find xt at t_next
+        self.rf.interp.solve(t_next, x0=x0_pred_noise, x1=x1_pred)
+        xtnext = self.rf.interp.xt
+
+        self.xt = xtnext
+        self.t = t_next
+
+
 class CurvedSampler(Sampler):
     def step(self):
 
