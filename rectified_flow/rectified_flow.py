@@ -1,122 +1,56 @@
-#@title affine interp & rectified flow, CouplingDataset
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.distributions as dist
 import sympy
-import matplotlib.pyplot as plt
-from collections import namedtuple
 import warnings
-from torch.utils.data import Dataset, DataLoader
 
-class CouplingDataset(Dataset):
-    def __init__(self, noise=None, data=None, labels=None, independent_coupling=True):
-        """
-        Initialize the dataset with noise (D0), data (D1), and optional labels.
+import torch.distributions as dist
+import matplotlib.pyplot as plt
 
-        Args:
-            noise: Tensor, distribution, or function for generating noise samples. If None, defaults to a standard
-                   multivariate normal distribution with the same dimensions as each sample of data.
-            data: Tensor or distribution for data samples.
-            labels: Optional tensor for labels associated with data samples.
-            data_size: Default length for the dataset if data is not a tensor.
-            independent_coupling: If True, samples D0 and D1 independently; otherwise, pairs them.
-        """
-        self.D1 = data
-        self.D0 = noise if noise is not None else self._set_default_noise()
-        self.labels = labels
-        self.independent_coupling = independent_coupling
-        self.paired = not independent_coupling
-        self._varlidate_inputs()
-        self.default_dataset_length = 10000
+from scipy.integrate import solve_ivp
+from typing import Any, Callable, Dict, List, Optional, Union, Tuple
+from dataclasses import dataclass
 
-    def randomize_D0_index_if_needed(self, index):
-        """Randomize indices for D0 if pairing=False and D0 is Tensor."""
-        if not self.paired and isinstance(self.D0, torch.Tensor):
-            return torch.randint(0, len(self.D0), (1,)).item()
-        else:
-            return index
+def match_time_dim_with_data(
+    t: torch.Tensor | float | List[float],
+    X_shape: tuple,
+    device: torch.device = torch.device("cpu"),
+    dtype: torch.dtype = torch.float32,
+):
+    """
+    Prepares the time tensor by reshaping it to match the dimensions of X.
 
-    def _set_default_noise(self):
-        """Set up default noise as a standard normal matching the sample shape of D1."""
-        data_shape = self.draw_sample(self.D1, 0).shape
-        return dist.Normal(torch.zeros(data_shape), torch.ones(data_shape))
+    Args:
+        t (Union[torch.Tensor, float, List[float]]): Time tensor, which can be:
+            - A scalar (float or 0-dimensional torch.Tensor)
+            - A list of floats with length equal to the batch size
+            - A torch.Tensor of shape (B,)
+        X_shape (tuple): Shape of the tensor X, e.g., X.shape
 
-    @staticmethod
-    def draw_sample(D, index):
-        """
-        Draw a sample based on the type of D (tensor, distribution, or callable).
-        Returns D[index] if D is a tensor, otherwise a sample from D (index ignored).
-        """
-        if isinstance(D, dist.Distribution):
-            return D.sample([1]).squeeze(0)
-        elif isinstance(D, torch.Tensor):
-            return D[index]
-        elif callable(D):
-            return D(1)
-        else:
-            raise NotImplementedError(f"Unsupported type: {type(D)}")
+    Returns:
+        torch.Tensor: Reshaped time tensor, ready for broadcasting with X.
+    """
+    B = X_shape[0]  # Batch size
 
-    def __len__(self):
-        """Return the length of D1 if it's a tensor, otherwise default."""
-        return len(self.D1) if isinstance(self.D1, torch.Tensor) else self.default_dataset_length
+    if isinstance(t, float):
+        t = torch.full((B,), t, device=device, dtype=dtype)
+    elif isinstance(t, list):
+        if len(t) != B:
+            raise ValueError(f"Length of t list ({len(t)}) does not match batch size ({B}).")
+        t = torch.tensor(t, device=device, dtype=dtype)
+    elif isinstance(t, torch.Tensor):
+        t = t.to(device=device, dtype=dtype)
+        if t.ndim == 0:
+            t = t.repeat(B)
+        elif t.shape[0] != B:
+            raise ValueError(f"Batch size of t ({t.shape[0]}) does not match X ({B}).")
+    else:
+        raise TypeError(f"t must be a torch.Tensor, float, or a list of floats, but got {type(t)}.")
 
-    def __getitem__(self, index):
-        """Retrieve a sample from D0 and D1, and labels if provided."""
-        X0 = self.draw_sample(self.D0, self.randomize_D0_index_if_needed(index))
-        X1 = self.draw_sample(self.D1, index)
-        if self.labels is not None:
-            label = self.draw_sample(self.labels, index)
-            return X0, X1, label
-        else:
-            return X0, X1
-
-    # Input validation based on pairing
-    def _varlidate_inputs(self):
-        if self.paired:
-            if self.labels is None:
-                assert isinstance(self.D0, torch.Tensor) and isinstance(self.D1, torch.Tensor) and len(self.D0) == len(self.D1), \
-                    "D0 and D1 must be tensors of the same length when paired is True."
-            else:
-                assert isinstance(self.D0, torch.Tensor) and isinstance(self.D1, torch.Tensor) and isinstance(self.labels, torch.Tensor) \
-                      and len(self.D0) == len(self.D1) == len(self.labels), \
-                    "D0, D1, and labels must be tensors of the same length when paired is True."
-        else:
-            if self.labels is not None:
-                assert isinstance(self.D1, torch.Tensor) and isinstance(self.labels, torch.Tensor) and len(self.D1) == len(self.labels), \
-                    "D1 and labels must be tensors of the same length when labels are given."
-
-# Testing code
-def test_coupling_dataset():
-    # Test data tensor with more than two dimensions
-    data = torch.randn(5, 3,4)  # 100 samples, each of shape (3, 4, 4)
-    labels = torch.randint(0, 2, (5,))  # Binary labels for testing
-
-    # Case 1: Independent dataset with default noise as standard normal
-    independent_dataset_default_noise = CouplingDataset(data=data, independent_coupling=True)
-    independent_dataloader_default_noise = DataLoader(independent_dataset_default_noise, batch_size=2)
-
-    print("Testing independent dataset with default standard normal noise:")
-    for X0, X1 in independent_dataloader_default_noise:
-        #assert X0.shape == X1.shape == (10, 3, 4, 4), "Independent samples should have the same shape"
-        print("Independent batch with default standard normal noise:", X0.shape, X1.shape)
-
-    # Case 2: Independent dataset with custom noise distribution
-    noise_dist = dist.Normal(torch.zeros(3), torch.ones(3))  # Distribution matching (3, 4, 4) shape
-    data = torch.randn(5, 3)  # 100 samples, each of shape (3, 4, 4)
-    independent_dataset_dist = CouplingDataset(noise=noise_dist, data=data, independent_coupling=True)
-    independent_dataloader_dist = DataLoader(independent_dataset_dist, batch_size=2, drop_last=True)
-
-    print("\nTesting independent dataset with custom noise distribution:")
-    for X0, X1 in independent_dataloader_dist:
-        #assert X0.shape == X1.shape == (10, 3, 4, 4), "Independent samples should have the same shape"
-        print("Independent batch with noise from distribution:", X0.shape, X1.shape)
-
-# Run tests
-if __name__ == '__main__':
-    test_coupling_dataset()
-
-
+    # Reshape t to have singleton dimensions matching X_shape after the batch dimension
+    expanded_dims = [1] * (len(X_shape) - 1)
+    t = t.view(B, *expanded_dims)
+    return t
 
 class AffineInterpSolver:
     '''
@@ -210,14 +144,6 @@ class AffineInterp(nn.Module):
             x = torch.tensor(x)
         return x
 
-    def match_time_dim(self, t, x):
-        # enure that t is [N,1,1,..] if x is [N,...]
-        t = self.ensure_tensor(t)
-        while t.dim() < x.dim(): t = t.unsqueeze(-1)
-        if t.shape[0] == 1: t = t.expand(x.shape[0], *t.shape[1:])
-        t = t.to(x.device)
-        return t
-
     @staticmethod
     def value_and_grad(f, input, detach=True):
         x = input.clone(); x.requires_grad_(True)
@@ -285,123 +211,135 @@ def test_affine_interp():
     print(interp.x0.shape)
     print(interp.x1.shape)
 
-if __name__ == "__main__":
-    test_affine_interp()
+class TimeDistribution:
+    def __init__(
+        self,
+        dist: str = "uniform",
+    ):
+        self.dist = dist
+
+    @torch.no_grad()
+    def __call__(
+        self,
+        batch_size: int,
+        device: torch.device = torch.device("cpu"),
+        dtype: torch.dtype = torch.float32,
+    ) -> torch.Tensor:
+        if self.dist == "uniform":
+            t = torch.rand((batch_size,), device=device, dtype=dtype)
+        else: # NOTE: will implement different time distributions
+            raise NotImplementedError(f"Time distribution '{self.dist}' is not implemented.")
+        
+        return t
+
+class TimeWeights:
+    def __init__(
+        self,
+        weight: str = "uniform",
+    ):
+        self.weight = weight
+
+    def __call__(
+        self,
+        t: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.weight == "uniform":
+            wts = torch.ones_like(t)
+        else:
+            raise NotImplementedError(f"Time weight '{self.weight}' is not implemented.")
+        
+        return wts
+
+class RFLossFunction:
+    def __init__(
+        self,
+        loss_type: str = "mse",
+    ):
+        self.loss_type = loss_type
+    
+    def __call__(
+        self,
+        v_t: torch.Tensor,
+        dot_Xt: torch.Tensor,
+        X_t: torch.Tensor,
+        t: torch.Tensor,
+        time_weights: torch.Tensor,
+    ) -> torch.Tensor:
+        if self.loss_type == "mse":
+            loss = torch.mean(time_weights * (v_t - dot_Xt)**2)
+        else:
+            raise NotImplementedError(f"Loss function '{self.loss_type}' is not implemented.")
+        
+        return loss
 
 class RectifiedFlow:
-    def __init__(self,
-                 # basic
-                 dataset= None,
-                 pi0= None,
-                 interp=AffineInterp('straight'),
-                 model=None,
-                 device = None,
-                 seed = None,
-                 # training
-                 optimizer=None,
-                 time_weight = lambda t: 0*t+1.0,
-                 time_wrapper = lambda t: t,
-                 criterion = lambda vt, dot_xt, xt, t, wts: torch.mean(wts * (vt - dot_xt)**2),
-                 # training loops
-                 num_iterations=100,
-                 num_epochs=None,
-                 batch_size=64,
-                 ):
-        # interp
-        self.interp = interp
+    def __init__(
+        self,
+        flow_model: nn.Module = None,
+        interp_func: AffineInterp | str = "straight",
+        time_dist: TimeDistribution | str = "uniform",
+        time_weight: TimeWeights | str = "uniform",
+        criterion: RFLossFunction | str = "mse",
+        device: torch.device = torch.device('cpu'),
+        dtype: torch.dtype = torch.float32,
+        seed: int = 0,
+    ):
+        self.flow_model = flow_model 
 
-        # data
-        self.dataset = dataset
-        self.D0 = dataset.D0
-        self.D1 = dataset.D1
-        self.labels = dataset.labels
-        self.independent_coupling = dataset.independent_coupling
-        self.paired = not self.independent_coupling
-        self.pi0 = pi0 if pi0 is not None else dataset.D0
-
-        # training & model
-        self.time_weight = time_weight
-        self.time_wrapper = time_wrapper
-        self.criterion = criterion
+        self.get_interpolation = interp_func if isinstance(interp_func, AffineInterp) else AffineInterp(interp_func)
+        self.sample_time = time_dist if isinstance(time_dist, TimeDistribution) else TimeDistribution(time_dist)
+        self.time_weight = time_weight if isinstance(time_weight, TimeWeights) else TimeWeights(time_weight)
+        self.criterion = criterion if isinstance(criterion, RFLossFunction) else RFLossFunction(criterion)
+        
         self.device = device
+        self.dtype = dtype
         self.seed = seed
-        self.decoder = None # decode from hidden states
-        self.model = model
-        self.optimizer = optimizer
-        self.num_iterations = num_iterations
-        self.num_epochs = num_epochs
-        self.batch_size = batch_size
 
-        # defaults
-        self.config_model()
-        self.set_default_optimizer()
-        self.set_random_seed()
-        self.set_device()
+    def get_velocity(
+        self,
+        X: torch.Tensor,
+        t: torch.Tensor,
+        **kwargs,
+    ):
+        """
+        Compute the velocity of the flow at (X_t, t)
+        Decouples velocity computation from the model forward pass, handle t transformation, etc.
 
-    # decouple velocity and model if needed 
-    def velocity(self, *args, **kwargs):
-        # Remove 'label' from kwargs if rf.dataset.labels = None
-        if self.labels is None and 'labels' in kwargs and kwargs['labels'] is None: 
-            del kwargs['labels']        
-        return self.model(*args, **kwargs)
+        Args:
+            X (torch.Tensor): X_t, shape (B, D) or (B, D1, D2, ..., Dn)
+            t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_time_dim_with_data
 
+        Returns:
+            torch.Tensor: Velocity tensor, same shape as X
+        """
+        assert X.shape[0] == t.shape[0] and t.ndim == 1, "Batch size of X and t must match."
+        # NOTE: May do t / velocity transformation, e.g. t = 1 - t, velocity = -velocity
+        velocity = self.flow_model(X, t, **kwargs)
+        return velocity
 
-    # in case we need to pass some rf configurations into the model
-    def config_model(self):
-        if (self.model is not None) and (hasattr(self.model, 'rectifiedflow_setup')) and (callable(getattr(self.model, 'rectifiedflow_setup'))):
-            self.model.rectifiedflow_setup(self)
-
-    def set_default_optimizer(self):
-        if (self.optimizer is None) and (self.model is not None):
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-4, weight_decay=0.0, betas=(0.9, 0.999))
-
-    def set_random_seed(self, seed=None):
-        if seed is None: seed = self.seed
-        self.seed = seed  
-        if seed is not None:
-            torch.manual_seed(seed)
-            torch.cuda.manual_seed_all(seed)
-            # For deterministic behavior in certain operations (may affect performance)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-
-    def set_device(self):
-        if self.device is None:
-            device = torch.device('cpu')
-            if isinstance(self.D1, torch.Tensor):
-                device = self.D1.device
-            if isinstance(self.model, nn.Module):
-                for param in self.model.parameters():
-                    device = param.device
-                    break
-            self.device = device
-            return device
-
-    def ensure_tensor(self, t):
-        if not isinstance(t, torch.Tensor): t = torch.tensor(t, device=self.device)
-        return t
-
-    def match_time_dim(self, t, x=None):
-        # enure that t is [N,...] if x is [N,...]
-        if x is None: x = self.D1[0]
-        t = self.ensure_tensor(t)
-        while t.dim() < x.dim(): t = t.unsqueeze(-1)
-        if t.shape[0] == 1: t = t.expand(x.shape[0], *t.shape[1:])
-        t = t.to(x.device)
-        return t
-
-    def sample_x0(self, batch_size):
-        return self.pi0.sample([batch_size]).to(self.device)
-
-    def get_loss(self, X0, X1, *args, **kwargs):
+    def get_loss(self, X0, X1, **kwargs):
         t = self.draw_time(X0.shape[0])
         Xt, dot_Xt = self.interp(X0, X1, t)
-        vt = self.model(Xt, t, *args, **kwargs)
+        vt = self.model(Xt, t, **kwargs)
         wts = self.time_weight(t)
         loss = self.criterion(vt, dot_Xt, Xt, t, wts)
         return loss
+    
+    def get_loss(
+        self,
+        X_0: torch.Tensor,
+        X_1: torch.Tensor,
+        t: torch.Tensor,
+        **kwargs,
+    ):
+        t = self.sample_time(X_0.shape[0])
+        X_t, dot_Xt = self.get_interpolation(X_0, X_1, t)
+        v_t = self.get_velocity(X_t, t, **kwargs)
+        wts = self.time_weight(t)
+        loss = self.criterion(v_t, dot_Xt, X_t, t, wts)
+        return loss
 
-    # for D0~Normal(0,I), Dlogpt(Xt) = -E[X0|Xt]/bt
+    # D_0 must ~ Normal(0,I), Dlogpt(Xt) = -E[X0 | Xt] / bt
     def get_score_function(self, Xt, vt, t):
         self.assert_canonical()
         self.interp.solve(t=t, xt=Xt, dot_xt=vt)
@@ -439,11 +377,9 @@ class RectifiedFlow:
         #sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
         return vt_sde, sigma_t
 
-    def draw_time(self, batch_size):
-        t = self.time_wrapper(torch.rand((batch_size, 1)).to(self.device))
-        return t
 
     def train(self, num_iterations=100, num_epochs=None, batch_size=64, D0=None, D1=None, optimizer=None, shuffle=True):
+        # Will be deprecated!!!
         if optimizer is None: optimizer = self.optimizer
         if num_iterations is None: num_iterations = self.num_iterations
         if num_epochs is not None: num_epochs = self.num_epochs
@@ -475,12 +411,14 @@ class RectifiedFlow:
                 batch_count += 1
 
     def is_pi0_zero_mean_gaussian(self):
+        # Will be deprecated!!!
         # Check if pi0 is a zero-mean Gaussian distribution
         case1 = isinstance(self.pi0, dist.MultivariateNormal)  and torch.allclose(self.pi0.mean, torch.zeros_like(self.pi0.mean))
         case2 = isinstance(self.pi0, dist.Normal)  and torch.allclose(self.pi0.mean, torch.zeros_like(self.pi0.loc))
         return case1 or case2
 
     def is_pi0_standard_gaussian(self):
+        # Will be deprecated!!!
         # Check if pi0 is Standard Gaussian
         case1 = isinstance(self.pi0, dist.MultivariateNormal)  \
                 and torch.allclose(self.pi0.mean, self.pi0.mean*0) \
@@ -491,12 +429,25 @@ class RectifiedFlow:
         return case1 or case2
 
     def assert_if_pi0_is_standard_gaussian(self):
+        # Will be deprecated!!!
         if not self.is_pi0_standard_gaussian():
             raise ValueError("pi0 must be a standard Gaussian distribution.")
 
     def assert_canonical(self):
+        # Will be deprecated!!!
         if not (self.is_pi0_standard_gaussian() and (self.indepdent_coulpling==True)):
             raise ValueError('Must be the Cannonical Case: pi0 must be standard Gaussian and the data must be unpaired (independent coupling)')
+        
+    def set_random_seed(self, seed=None):
+        # Will be deprecated!!!
+        if seed is None: seed = self.seed
+        self.seed = seed  
+        if seed is not None:
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            # For deterministic behavior in certain operations (may affect performance)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
 
     def plot_loss_curve(self):
           plt.plot(self.loss_curve, '-.')
