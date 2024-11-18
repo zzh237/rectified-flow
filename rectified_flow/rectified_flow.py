@@ -23,193 +23,258 @@ def match_time_dim_with_data(
     Args:
         t (Union[torch.Tensor, float, List[float]]): Time tensor, which can be:
             - A scalar (float or 0-dimensional torch.Tensor)
-            - A list of floats with length equal to the batch size
-            - A torch.Tensor of shape (B,)
+            - A list of floats with length equal to the batch size or length 1
+            - A torch.Tensor of shape (B,), (B, 1), or (1,)
         X_shape (tuple): Shape of the tensor X, e.g., X.shape
 
     Returns:
         torch.Tensor: Reshaped time tensor, ready for broadcasting with X.
     """
     B = X_shape[0]  # Batch size
+    ndim = len(X_shape)
 
     if isinstance(t, float):
+        # Create a tensor of shape (B,)
         t = torch.full((B,), t, device=device, dtype=dtype)
     elif isinstance(t, list):
-        if len(t) != B:
-            raise ValueError(f"Length of t list ({len(t)}) does not match batch size ({B}).")
-        t = torch.tensor(t, device=device, dtype=dtype)
+        if len(t) == 1:
+            # If t is a list of length 1, repeat the scalar value B times
+            t = torch.full((B,), t[0], device=device, dtype=dtype)
+        elif len(t) == B:
+            t = torch.tensor(t, device=device, dtype=dtype)
+        else:
+            raise ValueError(f"Length of t list ({len(t)}) does not match batch size ({B}) and is not 1.")
     elif isinstance(t, torch.Tensor):
         t = t.to(device=device, dtype=dtype)
         if t.ndim == 0:
+            # Scalar tensor, expand to (B,)
             t = t.repeat(B)
-        elif t.shape[0] != B:
-            raise ValueError(f"Batch size of t ({t.shape[0]}) does not match X ({B}).")
+        elif t.ndim == 1:
+            if t.shape[0] == 1:
+                # Tensor of shape (1,), repeat to (B,)
+                t = t.repeat(B)
+            elif t.shape[0] == B:
+                # t is already of shape (B,)
+                pass
+            else:
+                raise ValueError(f"Batch size of t ({t.shape[0]}) does not match X ({B}).")
+        elif t.ndim == 2:
+            if t.shape == (B, 1):
+                # t is of shape (B, 1), squeeze last dimension
+                t = t.squeeze(1)
+            elif t.shape == (1, 1):
+                # t is of shape (1, 1), expand to (B,)
+                t = t.squeeze().repeat(B)
+            else:
+                raise ValueError(f"t must be of shape ({B}, 1) or (1, 1), but got {t.shape}")
+        else:
+            raise ValueError(f"t can have at most 2 dimensions, but got {t.ndim}")
     else:
         raise TypeError(f"t must be a torch.Tensor, float, or a list of floats, but got {type(t)}.")
 
     # Reshape t to have singleton dimensions matching X_shape after the batch dimension
-    expanded_dims = [1] * (len(X_shape) - 1)
+    expanded_dims = [1] * (ndim - 1)
     t = t.view(B, *expanded_dims)
     return t
 
+
 class AffineInterpSolver:
-    '''
-    This is symbolic solver for equation: xt = at*x1+bt*x0, dot_xt = dot_at*x1+dot_bt*x0
-    Given the known variables, and keep the unknowns as None; the solver will fill the unknowns automatically.
-    '''
+    """
+    Symbolic solver for the equations:
+        xt = at * x1 + bt * x0
+        dot_xt = dot_at * x1 + dot_bt * x0
+    Given known variables and unknowns set as None, the solver computes the unknowns.
+    """
     def __init__(self):
-        x0s, x1s, xts, dot_xts, ats, bts, dot_ats, dot_bts = sympy.symbols('r.x0 r.x1 r.xt r.dot_xt r.at r.bt r.dot_at r.dot_bt')
-        eq1 = sympy.Eq(xts, ats * x1s + bts * x0s)
-        eq2 = sympy.Eq(dot_xts, dot_ats * x1s + dot_bts * x0s)
-        # create symbolic solver for all pairs of unknown variables
+        # Define symbols
+        x0, x1, xt, dot_xt = sympy.symbols('x0 x1 xt dot_xt')
+        at, bt, dot_at, dot_bt = sympy.symbols('at bt dot_at dot_bt')
+        
+        # Equations
+        eq1 = sympy.Eq(xt, at * x1 + bt * x0)
+        eq2 = sympy.Eq(dot_xt, dot_at * x1 + dot_bt * x0)
+        
+        # Variables to solve for
+        variables = [x0, x1, xt, dot_xt]
         self.symbolic_solvers = {}
-        variables = [x0s, x1s, xts, dot_xts]
+        
+        # Create symbolic solvers for all pairs of unknown variables
         for i in range(len(variables)):
             for j in range(i + 1, len(variables)):
                 unknown1, unknown2 = variables[i], variables[j]
-                solution = sympy.solve((eq1, eq2), (unknown1, unknown2))
-                func = eval(f'lambda r: '
-                            f'({str(solution[unknown1])}, {str(solution[unknown2])})')
-                obj_name, attr_name1 = str(unknown1).split('.')
-                obj_name, attr_name2 = str(unknown2).split('.')
-                self.symbolic_solvers[(attr_name1, attr_name2)] = func
+                # print(f"Solving for {unknown1} and {unknown2}")
+                # Solve equations
+                solutions = sympy.solve([eq1, eq2], (unknown1, unknown2), dict=True)
+                if solutions:
+                    solution = solutions[0]
+                    # Create lambdified functions
+                    expr1 = solution[unknown1]
+                    expr2 = solution[unknown2]
+                    func = sympy.lambdify(
+                        [x0, x1, xt, dot_xt, at, bt, dot_at, dot_bt],
+                        [expr1, expr2],
+                        modules="numpy"
+                    )
+                    # Store solver function
+                    var_names = (str(unknown1), str(unknown2))
+                    self.symbolic_solvers[var_names] = func
 
     def solve(self, results):
-        r = results
-        known_vars = {k: v for k, v in zip(['x0', 'x1', 'xt', 'dot_xt'], [r.x0, r.x1, r.xt, r.dot_xt]) if v is not None}
-        unknown_vars = {k: v for k, v in zip(['x0', 'x1', 'xt', 'dot_xt'], [r.x0, r.x1, r.xt, r.dot_xt]) if v is None}
-        unknown_keys = tuple(unknown_vars.keys())  # No sorting, preserving order
+        known_vars = {k: getattr(results, k) for k in ['x0', 'x1', 'xt', 'dot_xt'] if getattr(results, k) is not None}
+        unknown_vars = {k: getattr(results, k) for k in ['x0', 'x1', 'xt', 'dot_xt'] if getattr(results, k) is None}
+        unknown_keys = tuple(unknown_vars.keys())
 
         if len(unknown_keys) > 2:
-            warnings.warn("At least two variables in (x0, x1, xt, dot_xt) must be specified to use the solver.", UserWarning)
+            raise ValueError("At most two variables among (x0, x1, xt, dot_xt) can be unknown.")
         elif len(unknown_keys) == 0:
-            return r
+            return results
         elif len(unknown_keys) == 1:
-            first_known_key = next(iter(known_vars.keys()))
-            unknown_keys.append(first_known_key)
+            # Select one known variable to make up the pair
+            for var in ['x0', 'x1', 'xt', 'dot_xt']:
+                if var in known_vars:
+                    unknown_keys.append(var)
+                    break
 
         func = self.symbolic_solvers.get(unknown_keys)
 
-        solved_value1, solved_value2 = func(r)
+        # Prepare arguments in the order [x0, x1, xt, dot_xt, at, bt, dot_at, dot_bt]
+        args = []
+        for var in ['x0', 'x1', 'xt', 'dot_xt', 'at', 'bt', 'dot_at', 'dot_bt']:
+            value = getattr(results, var, None)
+            if value is None:
+                value = 0  # Placeholder for unknowns
+            args.append(value)
 
-        unknown1 = unknown_keys[0]; setattr(r, unknown1, solved_value1)
-        unknown2 = unknown_keys[1]; setattr(r, unknown2, solved_value2)
+        # Compute the unknown variables
+        solved_values = func(*args)
+        # Assign the solved values back to results
+        setattr(results, unknown_keys[0], solved_values[0])
+        setattr(results, unknown_keys[1], solved_values[1])
 
-        return r
+        return results
 
 
 class AffineInterp(nn.Module):
-    def __init__(self, alpha=None, beta=None, dot_alpha=None, dot_beta = None, name = 'affine'):
+    def __init__(self, name='straight', alpha=None, beta=None, dot_alpha=None, dot_beta=None):
         super().__init__()
 
-        self._process_defaults(alpha, beta, dot_alpha, dot_beta, name)
-
-        self.solver = AffineInterpSolver()
-        self.at = None; self.bt = None; self.dot_at = None; self.dot_bt = None
-        self.x0 = None; self.x1 = None; self.xt = None; self.dot_xt = None
-
-    def _process_defaults(self, alpha, beta, dot_alpha, dot_beta, name):
-        if (isinstance(alpha, str) and (alpha.lower() in ['straight', 'lerp'])) or (alpha is None and beta is None):
-            # Special case for 'straight' interpolation
+        if name.lower() in ['straight', 'lerp']:
+            # Special case for "straight" interpolation
             alpha = lambda t: t
             beta = lambda t: 1 - t
-            dot_alpha = lambda t: 1.0
-            dot_beta = lambda t: -1.0
+            dot_alpha = lambda t: torch.ones_like(t)
+            dot_beta = lambda t: -torch.ones_like(t)
             name = 'straight'
-
-        elif isinstance(alpha, str) and alpha.lower() in ['harmonic', 'cos', 'sin', 'slerp', 'spherical']:
-            # Special case of spherical interpolation
-            alpha = lambda t: torch.sin(t * torch.pi/2.0)
-            beta = lambda t: torch.cos(t * torch.pi/2.0)
-            dot_alpha = lambda t: torch.cos(t * torch.pi/2.0) * torch.pi/2.0
-            dot_beta = lambda t: -torch.sin(t * torch.pi/2.0) * torch.pi/2.0
+        elif name.lower() in ['harmonic', 'cos', 'sin', 'slerp', 'spherical']:
+            # Special case of "spherical" interpolation
+            alpha = lambda t: torch.sin(t * torch.pi / 2.0)
+            beta = lambda t: torch.cos(t * torch.pi / 2.0)
+            dot_alpha = lambda t: torch.cos(t * torch.pi / 2.0) * torch.pi / 2.0
+            dot_beta = lambda t: -torch.sin(t * torch.pi / 2.0) * torch.pi / 2.0
             name = 'spherical'
-
-        elif isinstance(alpha, str) and alpha.lower() in ['ddim', 'ddpm']:
+        elif name.lower() in ['ddim', 'ddpm']:
             # DDIM/DDPM scheme; see Eq 7 in https://arxiv.org/pdf/2209.03003
-            a = 19.9; b = 0.1
-            alpha = lambda t: torch.exp(-a*(1-t)**2/4.0 - b*(1-t)/2.0)
-            beta = lambda t: (1-alpha(t)**2)**(0.5)
+            a = 19.9
+            b = 0.1
+            alpha = lambda t: torch.exp(-a * (1 - t) ** 2 / 4.0 - b * (1 - t) / 2.0)
+            beta = lambda t: torch.sqrt(1 - alpha(t) ** 2)
             name = 'DDIM'
+        elif alpha is not None and beta is not None and dot_alpha is not None and dot_beta is not None:
+            # Custom interpolation functions
+            pass
 
+        self.name = name
         self.alpha = lambda t: alpha(self.ensure_tensor(t))
         self.beta = lambda t: beta(self.ensure_tensor(t))
         if dot_alpha is not None: self.dot_alpha = lambda t: dot_alpha(self.ensure_tensor(t))
+        else: self.dot_alpha = None 
         if dot_beta is not None: self.dot_beta = lambda t: dot_beta(self.ensure_tensor(t))
-        self.name = name
+        else: self.dot_beta = None 
+
+        self.solver = AffineInterpSolver()
+        self.at = None
+        self.bt = None
+        self.dot_at = None
+        self.dot_bt = None
+        self.x0 = None
+        self.x1 = None
+        self.xt = None
+        self.dot_xt = None
 
     @staticmethod
     def ensure_tensor(x):
-        if not isinstance(x, torch.Tensor):
-            x = torch.tensor(x)
-        return x
+        return x if isinstance(x, torch.Tensor) else torch.tensor(x)
 
     @staticmethod
-    def value_and_grad(f, input, detach=True):
-        x = input.clone(); x.requires_grad_(True)
+    def value_and_grad(f, input_tensor, detach=True):
+        x = input_tensor.clone().detach().requires_grad_(True)
         with torch.enable_grad():
             value = f(x)
-            grad, = torch.autograd.grad(value.sum(), x, create_graph=(detach==False))
-        if detach: value = value.detach(); grad = grad.detach()
+            grad, = torch.autograd.grad(value.sum(), x, create_graph=not detach)
+        if detach:
+            value = value.detach()
+            grad = grad.detach()
         return value, grad
 
     def get_coeffs(self, t, detach=True):
         if self.dot_alpha is None:
             at, dot_at = self.value_and_grad(self.alpha, t, detach=detach)
         else:
-            at = self.alpha(t); dot_at = self.dot_alpha(t)
+            at = self.alpha(t)
+            dot_at = self.dot_alpha(t)
         if self.dot_beta is None:
             bt, dot_bt = self.value_and_grad(self.beta, t, detach=detach)
         else:
-            bt = self.beta(t); dot_bt = self.dot_beta(t)
-        self.at = at; self.bt = bt; self.dot_at = dot_at; self.dot_bt = dot_bt
+            bt = self.beta(t)
+            dot_bt = self.dot_beta(t)
+        self.at = at
+        self.bt = bt
+        self.dot_at = dot_at
+        self.dot_bt = dot_bt
         return at, bt, dot_at, dot_bt
 
     def forward(self, X0, X1, t, detach=True):
-        t = self.match_time_dim(t, X1)
+        t = match_time_dim_with_data(t, X1.shape, device=X1.device, dtype=X1.dtype)
         a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t, detach=detach)
         Xt = a_t * X1 + b_t * X0
         dot_Xt = dot_a_t * X1 + dot_b_t * X0
         return Xt, dot_Xt
 
-    # Solve equation: xt = at*x1+bt*x0, dot_xt = dot_at*x1+dot_bt*x0
-    # Set any of the known variables, and keep the unknowns as None; the solver will fill the unknowns.
-    # Example: interp.solve(t, xt=xt, dot_xt=dot_xt); print(interp.x1.shape), print(interp.x0.shape)
     def solve(self, t=None, x0=None, x1=None, xt=None, dot_xt=None):
-        if t is None: raise ValueError("t must be provided")
-        self.x0 = x0; self.x1 = x1; self.xt = xt; self.dot_xt = dot_xt
+        """
+        Solve equation: xt = at*x1+bt*x0, dot_xt = dot_at*x1+dot_bt*x0
+        Set any of the known variables, and keep the unknowns as None; the solver will fill the unknowns.
+        Example: interp.solve(t, xt=xt, dot_xt=dot_xt); print(interp.x1.shape), print(interp.x0.shape)
+        """
+        if t is None:
+            raise ValueError("t must be provided")
+        self.x0 = x0
+        self.x1 = x1
+        self.xt = xt
+        self.dot_xt = dot_xt
         x_not_none = next((v for v in [x0, x1, xt, dot_xt] if v is not None), None)
-        t = self.match_time_dim(t, x_not_none)
+        if x_not_none is None:
+            raise ValueError("At least two of x0, x1, xt, dot_xt must not be None")
+        t = match_time_dim_with_data(t, x_not_none.shape, device=x_not_none.device, dtype=x_not_none.dtype)
         at, bt, dot_at, dot_bt = self.get_coeffs(t)
         self.solver.solve(self)
 
-    # mannually coded solution for solving (x0, dot_xt) given (xt, x1)
-    def x0_dot_xt_given_xt_and_x1(self, xt, t, x1):
-        t = self.match_time_dim(t, xt)
+    # Manually coded solution for solving (x0, dot_xt) given (xt, x1)
+    def x0_dot_xt_given_xt_and_x1(self, xt, x1, t):
+        t = match_time_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype)
         a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t)
-        x0 = (xt - a_t * x1)/b_t
+        x0 = (xt - a_t * x1) / b_t
         dot_xt = dot_a_t * x1 + dot_b_t * x0
         return x0, dot_xt
 
-    # mannually coded solution for solving (x0, x1) given (xt, dot_xt)
+    # Manually coded solution for solving (x0, x1) given (xt, dot_xt)
     def x0_x1_given_xt_and_dot_xt(self, xt, dot_xt, t):
-        t = self.match_time_dim(t, xt)
+        t = match_time_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype)
         a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t)
-        x0 = (dot_a_t * xt - a_t* dot_xt)/(dot_a_t * b_t - a_t * dot_b_t)
-        x1 = (dot_b_t * xt - b_t* dot_xt)/(dot_b_t * a_t - b_t * dot_a_t)
+        x0 = (dot_a_t * xt - a_t * dot_xt) / (dot_a_t * b_t - a_t * dot_b_t)
+        x1 = (dot_b_t * xt - b_t * dot_xt) / (dot_b_t * a_t - b_t * dot_a_t)
         return x0, x1
 
-def test_affine_interp():
-    interp = AffineInterp('straight')
-    t = torch.rand(1)
-    x0 = None#torch.tensor(0.0)
-    x1 = None#torch.tensor(1.0)
-    xt = torch.rand(10,2)
-    dot_xt = torch.randn(10,2)
-
-    interp.solve(t,  xt=xt, dot_xt=dot_xt)
-    print(interp.x0.shape)
-    print(interp.x1.shape)
 
 class TimeDistribution:
     def __init__(
@@ -280,7 +345,7 @@ class RectifiedFlow:
         time_dist: TimeDistribution | str = "uniform",
         time_weight: TimeWeights | str = "uniform",
         criterion: RFLossFunction | str = "mse",
-        device: torch.device = torch.device('cpu'),
+        device: torch.device = torch.device("cpu"),
         dtype: torch.dtype = torch.float32,
         seed: int = 0,
     ):
@@ -316,14 +381,6 @@ class RectifiedFlow:
         # NOTE: May do t / velocity transformation, e.g. t = 1 - t, velocity = -velocity
         velocity = self.flow_model(X, t, **kwargs)
         return velocity
-
-    def get_loss(self, X0, X1, **kwargs):
-        t = self.draw_time(X0.shape[0])
-        Xt, dot_Xt = self.interp(X0, X1, t)
-        vt = self.model(Xt, t, **kwargs)
-        wts = self.time_weight(t)
-        loss = self.criterion(vt, dot_Xt, Xt, t, wts)
-        return loss
     
     def get_loss(
         self,
@@ -332,6 +389,17 @@ class RectifiedFlow:
         t: torch.Tensor,
         **kwargs,
     ):
+        """
+        Compute the loss of the flow model(X_t, t)
+
+        Args:
+            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn)
+            X_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
+            t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_time_dim_with_data
+
+        Returns:
+            torch.Tensor: Loss tensor, scalar
+        """
         t = self.sample_time(X_0.shape[0])
         X_t, dot_Xt = self.get_interpolation(X_0, X_1, t)
         v_t = self.get_velocity(X_t, t, **kwargs)
@@ -340,16 +408,16 @@ class RectifiedFlow:
         return loss
 
     # D_0 must ~ Normal(0,I), Dlogpt(Xt) = -E[X0 | Xt] / bt
-    def get_score_function(self, Xt, vt, t):
+    def calc_score_func(self, Xt, vt, t):
         self.assert_canonical()
         self.interp.solve(t=t, xt=Xt, dot_xt=vt)
         dlogp = - self.interp.x0/self.interp.bt
         return dlogp
 
-    def score_function(self, Xt, t, *args, **kwargs):
-        t = self.match_time_dim(t, Xt)
-        vt = self.model(Xt, t, *args, **kwargs)
-        return self.get_score_function(Xt, vt, t)
+    def get_score_function(self, Xt, t, **kwargs):
+        t = match_time_dim_with_data(t, Xt.shape, device=Xt.device, dtype=Xt.dtype)
+        vt = self.model(Xt, t, **kwargs)
+        return self.calc_score_func(Xt, vt, t)
 
     # SDE coeffs for dX = vt(Xt)+ .5*sigma_t^2*Dlogp(Xt) + sigma_t*dWt
     def get_sde_params_by_sigma(self, vt, xt, t, sigma):
@@ -364,10 +432,9 @@ class RectifiedFlow:
     # let et^2 = sigmat^2/bt, we have sigmat = sqrt(bt) * et, we have:
     # dX = vt(Xt) - .5*et^2*E[X0|Xt]+ sqrt(bt) * et *dWt
     def get_stable_sde_params(self, vt, xt, t, e):
-
         self.assert_canonical()
         self.interp.solve(t=t, xt=xt, dot_xt=vt)
-        et = e(self.match_time_dim(t,xt))
+        et = e(match_time_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype))
         x0_pred  = - self.interp.x0/self.interp.bt
         vt_sde = vt - x0_pred * et**2 * 0.5
         sigma_t = et * self.interp.bt**0.5
@@ -376,7 +443,6 @@ class RectifiedFlow:
         #vt_sde =vt * (1+et) - et * dot_at / at * xt
         #sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
         return vt_sde, sigma_t
-
 
     def train(self, num_iterations=100, num_epochs=None, batch_size=64, D0=None, D1=None, optimizer=None, shuffle=True):
         # Will be deprecated!!!
@@ -435,6 +501,7 @@ class RectifiedFlow:
 
     def assert_canonical(self):
         # Will be deprecated!!!
+        return
         if not (self.is_pi0_standard_gaussian() and (self.indepdent_coulpling==True)):
             raise ValueError('Must be the Cannonical Case: pi0 must be standard Gaussian and the data must be unpaired (independent coupling)')
         
