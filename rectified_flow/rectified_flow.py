@@ -311,7 +311,7 @@ class RectifiedFlow:
         self.interp = interp
 
         # data
-        self.data = dataset
+        self.dataset = dataset
         self.D0 = dataset.D0
         self.D1 = dataset.D1
         self.labels = dataset.labels
