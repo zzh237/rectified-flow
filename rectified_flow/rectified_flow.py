@@ -33,12 +33,10 @@ def match_time_dim_with_data(
     B = X_shape[0]  # Batch size
     ndim = len(X_shape)
 
-    if isinstance(t, float):
-        # Create a tensor of shape (B,)
+    if isinstance(t, float): # Create a tensor of shape (B,)
         t = torch.full((B,), t, device=device, dtype=dtype)
     elif isinstance(t, list):
-        if len(t) == 1:
-            # If t is a list of length 1, repeat the scalar value B times
+        if len(t) == 1: # If t is a list of length 1, repeat the scalar value B times
             t = torch.full((B,), t[0], device=device, dtype=dtype)
         elif len(t) == B:
             t = torch.tensor(t, device=device, dtype=dtype)
@@ -46,24 +44,19 @@ def match_time_dim_with_data(
             raise ValueError(f"Length of t list ({len(t)}) does not match batch size ({B}) and is not 1.")
     elif isinstance(t, torch.Tensor):
         t = t.to(device=device, dtype=dtype)
-        if t.ndim == 0:
-            # Scalar tensor, expand to (B,)
+        if t.ndim == 0: # Scalar tensor, expand to (B,)
             t = t.repeat(B)
         elif t.ndim == 1:
-            if t.shape[0] == 1:
-                # Tensor of shape (1,), repeat to (B,)
+            if t.shape[0] == 1: # Tensor of shape (1,), repeat to (B,)
                 t = t.repeat(B)
-            elif t.shape[0] == B:
-                # t is already of shape (B,)
+            elif t.shape[0] == B: # t is already of shape (B,)
                 pass
             else:
                 raise ValueError(f"Batch size of t ({t.shape[0]}) does not match X ({B}).")
         elif t.ndim == 2:
-            if t.shape == (B, 1):
-                # t is of shape (B, 1), squeeze last dimension
+            if t.shape == (B, 1): # t is of shape (B, 1), squeeze last dimension
                 t = t.squeeze(1)
-            elif t.shape == (1, 1):
-                # t is of shape (1, 1), expand to (B,)
+            elif t.shape == (1, 1): # t is of shape (1, 1), expand to (B,)
                 t = t.squeeze().repeat(B)
             else:
                 raise ValueError(f"t must be of shape ({B}, 1) or (1, 1), but got {t.shape}")
@@ -444,38 +437,6 @@ class RectifiedFlow:
         #sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
         return vt_sde, sigma_t
 
-    def train(self, num_iterations=100, num_epochs=None, batch_size=64, D0=None, D1=None, optimizer=None, shuffle=True):
-        # Will be deprecated!!!
-        if optimizer is None: optimizer = self.optimizer
-        if num_iterations is None: num_iterations = self.num_iterations
-        if num_epochs is not None: num_epochs = self.num_epochs
-        self.loss_curve = []
-
-        # Set up dataloader
-        dataloader = torch.utils.data.DataLoader(self.dataset, batch_size=batch_size, shuffle=shuffle)
-        self.dataloader = dataloader
-
-        # Calculate the total number of batches to process
-        total_batches = num_iterations
-        if num_epochs is not None:
-            total_batches = num_epochs * len(dataloader)
-
-        batch_count = 0
-        while batch_count < total_batches:
-            for batch in dataloader: # batch can be either (X0,X1) or (X0,X1,labels)
-
-                if batch_count >= total_batches: break
-                optimizer.zero_grad()
-
-                # loss & backprop
-                loss = self.get_loss(*batch)
-                loss.backward()
-                optimizer.step()
-
-                # Track loss
-                self.loss_curve.append(loss.item())
-                batch_count += 1
-
     def is_pi0_zero_mean_gaussian(self):
         # Will be deprecated!!!
         # Check if pi0 is a zero-mean Gaussian distribution
@@ -504,17 +465,3 @@ class RectifiedFlow:
         return
         if not (self.is_pi0_standard_gaussian() and (self.indepdent_coulpling==True)):
             raise ValueError('Must be the Cannonical Case: pi0 must be standard Gaussian and the data must be unpaired (independent coupling)')
-        
-    def set_random_seed(self, seed=None):
-        # Will be deprecated!!!
-        if seed is None: seed = self.seed
-        self.seed = seed  
-        if seed is not None:
-            torch.manual_seed(seed)
-            torch.cuda.manual_seed_all(seed)
-            # For deterministic behavior in certain operations (may affect performance)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-
-    def plot_loss_curve(self):
-          plt.plot(self.loss_curve, '-.')
