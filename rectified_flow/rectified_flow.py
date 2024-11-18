@@ -1,4 +1,4 @@
-#@title affine interp & rectified flow 
+#@title affine interp & rectified flow, CouplingDataset
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,9 +6,123 @@ import torch.distributions as dist
 import sympy
 import matplotlib.pyplot as plt
 from collections import namedtuple
-import warnings 
+import warnings
+from torch.utils.data import Dataset, DataLoader
+
+class CouplingDataset(Dataset):
+    def __init__(self, noise=None, data=None, labels=None, independent_coupling=True):
+        """
+        Initialize the dataset with noise (D0), data (D1), and optional labels.
+
+        Args:
+            noise: Tensor, distribution, or function for generating noise samples. If None, defaults to a standard
+                   multivariate normal distribution with the same dimensions as each sample of data.
+            data: Tensor or distribution for data samples.
+            labels: Optional tensor for labels associated with data samples.
+            data_size: Default length for the dataset if data is not a tensor.
+            independent_coupling: If True, samples D0 and D1 independently; otherwise, pairs them.
+        """
+        self.D1 = data
+        self.D0 = noise if noise is not None else self._set_default_noise()
+        self.labels = labels
+        self.independent_coupling = independent_coupling
+        self.paired = not independent_coupling
+        self._varlidate_inputs()
+        self.default_dataset_length = 10000
+
+    def randomize_D0_index_if_needed(self, index):
+        """Randomize indices for D0 if pairing=False and D0 is Tensor."""
+        if not self.paired and isinstance(self.D0, torch.Tensor):
+            return torch.randint(0, len(self.D0), (1,)).item()
+        else:
+            return index
+
+    def _set_default_noise(self):
+        """Set up default noise as a standard normal matching the sample shape of D1."""
+        data_shape = self.draw_sample(self.D1, 0).shape
+        return dist.Normal(torch.zeros(data_shape), torch.ones(data_shape))
+
+    @staticmethod
+    def draw_sample(D, index):
+        """
+        Draw a sample based on the type of D (tensor, distribution, or callable).
+        Returns D[index] if D is a tensor, otherwise a sample from D (index ignored).
+        """
+        if isinstance(D, dist.Distribution):
+            return D.sample([1]).squeeze(0)
+        elif isinstance(D, torch.Tensor):
+            return D[index]
+        elif callable(D):
+            return D(1)
+        else:
+            raise NotImplementedError(f"Unsupported type: {type(D)}")
+
+    def __len__(self):
+        """Return the length of D1 if it's a tensor, otherwise default."""
+        return len(self.D1) if isinstance(self.D1, torch.Tensor) else self.default_dataset_length
+
+    def __getitem__(self, index):
+        """Retrieve a sample from D0 and D1, and labels if provided."""
+        X0 = self.draw_sample(self.D0, self.randomize_D0_index_if_needed(index))
+        X1 = self.draw_sample(self.D1, index)
+        if self.labels is not None:
+            label = self.draw_sample(self.labels, index)
+            return X0, X1, label
+        else:
+            return X0, X1
+
+    # Input validation based on pairing
+    def _varlidate_inputs(self):
+        if self.paired:
+            if self.labels is None:
+                assert isinstance(self.D0, torch.Tensor) and isinstance(self.D1, torch.Tensor) and len(self.D0) == len(self.D1), \
+                    "D0 and D1 must be tensors of the same length when paired is True."
+            else:
+                assert isinstance(self.D0, torch.Tensor) and isinstance(self.D1, torch.Tensor) and isinstance(self.labels, torch.Tensor) \
+                      and len(self.D0) == len(self.D1) == len(self.labels), \
+                    "D0, D1, and labels must be tensors of the same length when paired is True."
+        else:
+            if self.labels is not None:
+                assert isinstance(self.D1, torch.Tensor) and isinstance(self.labels, torch.Tensor) and len(self.D1) == len(self.labels), \
+                    "D1 and labels must be tensors of the same length when labels are given."
+
+# Testing code
+def test_coupling_dataset():
+    # Test data tensor with more than two dimensions
+    data = torch.randn(5, 3,4)  # 100 samples, each of shape (3, 4, 4)
+    labels = torch.randint(0, 2, (5,))  # Binary labels for testing
+
+    # Case 1: Independent dataset with default noise as standard normal
+    independent_dataset_default_noise = CouplingDataset(data=data, independent_coupling=True)
+    independent_dataloader_default_noise = DataLoader(independent_dataset_default_noise, batch_size=2)
+
+    print("Testing independent dataset with default standard normal noise:")
+    for X0, X1 in independent_dataloader_default_noise:
+        #assert X0.shape == X1.shape == (10, 3, 4, 4), "Independent samples should have the same shape"
+        print("Independent batch with default standard normal noise:", X0.shape, X1.shape)
+
+    # Case 2: Independent dataset with custom noise distribution
+    noise_dist = dist.Normal(torch.zeros(3), torch.ones(3))  # Distribution matching (3, 4, 4) shape
+    data = torch.randn(5, 3)  # 100 samples, each of shape (3, 4, 4)
+    independent_dataset_dist = CouplingDataset(noise=noise_dist, data=data, independent_coupling=True)
+    independent_dataloader_dist = DataLoader(independent_dataset_dist, batch_size=2, drop_last=True)
+
+    print("\nTesting independent dataset with custom noise distribution:")
+    for X0, X1 in independent_dataloader_dist:
+        #assert X0.shape == X1.shape == (10, 3, 4, 4), "Independent samples should have the same shape"
+        print("Independent batch with noise from distribution:", X0.shape, X1.shape)
+
+# Run tests
+if __name__ == '__main__':
+    test_coupling_dataset()
+
+
 
 class AffineInterpSolver:
+    '''
+    This is symbolic solver for equation: xt = at*x1+bt*x0, dot_xt = dot_at*x1+dot_bt*x0
+    Given the known variables, and keep the unknowns as None; the solver will fill the unknowns automatically.
+    '''
     def __init__(self):
         x0s, x1s, xts, dot_xts, ats, bts, dot_ats, dot_bts = sympy.symbols('r.x0 r.x1 r.xt r.dot_xt r.at r.bt r.dot_at r.dot_bt')
         eq1 = sympy.Eq(xts, ats * x1s + bts * x0s)
@@ -27,7 +141,6 @@ class AffineInterpSolver:
                 self.symbolic_solvers[(attr_name1, attr_name2)] = func
 
     def solve(self, results):
-
         r = results
         known_vars = {k: v for k, v in zip(['x0', 'x1', 'xt', 'dot_xt'], [r.x0, r.x1, r.xt, r.dot_xt]) if v is not None}
         unknown_vars = {k: v for k, v in zip(['x0', 'x1', 'xt', 'dot_xt'], [r.x0, r.x1, r.xt, r.dot_xt]) if v is None}
@@ -52,37 +165,44 @@ class AffineInterpSolver:
 
 
 class AffineInterp(nn.Module):
-    def __init__(self, alpha=None, beta=None):
+    def __init__(self, alpha=None, beta=None, dot_alpha=None, dot_beta = None, name = 'affine'):
         super().__init__()
-        ensure_tensor = self.ensure_tensor
 
-        if (isinstance(alpha, str) and (alpha.lower() in ['straight', 'lerp'])) or (alpha is None and beta is None):
-            # Special case for 'straight' interpolation
-            alpha = lambda t: t
-            beta = lambda t: 1 - t
-            self.name = 'straight'
-
-        elif isinstance(alpha, str) and alpha.lower() in ['harmonic', 'cos', 'sin', 'slerp', 'spherical']:
-            # Special case of harmonic interpolation
-            alpha = lambda t: torch.sin(t * torch.pi/2.0)
-            beta = lambda t: torch.cos(t * torch.pi/2.0)
-            self.name = 'spherical'
-
-        elif isinstance(alpha, str) and alpha.lower() in ['ddim', 'ddpm']:
-            a = 19.9; b = 0.1
-            alpha = lambda t: torch.exp(-a*(1-t)**2/4.0 - b*(1-t)/2.0)
-            beta = lambda t: (1-alpha(t)**2)**(0.5)
-            self.name = 'DDIM'
-
-        else:
-            self.name = 'affine'
-
-        self.alpha = lambda t: alpha(self.ensure_tensor(t))
-        self.beta = lambda t: beta(self.ensure_tensor(t))
+        self._process_defaults(alpha, beta, dot_alpha, dot_beta, name)
 
         self.solver = AffineInterpSolver()
         self.at = None; self.bt = None; self.dot_at = None; self.dot_bt = None
         self.x0 = None; self.x1 = None; self.xt = None; self.dot_xt = None
+
+    def _process_defaults(self, alpha, beta, dot_alpha, dot_beta, name):
+        if (isinstance(alpha, str) and (alpha.lower() in ['straight', 'lerp'])) or (alpha is None and beta is None):
+            # Special case for 'straight' interpolation
+            alpha = lambda t: t
+            beta = lambda t: 1 - t
+            dot_alpha = lambda t: 1.0
+            dot_beta = lambda t: -1.0
+            name = 'straight'
+
+        elif isinstance(alpha, str) and alpha.lower() in ['harmonic', 'cos', 'sin', 'slerp', 'spherical']:
+            # Special case of spherical interpolation
+            alpha = lambda t: torch.sin(t * torch.pi/2.0)
+            beta = lambda t: torch.cos(t * torch.pi/2.0)
+            dot_alpha = lambda t: torch.cos(t * torch.pi/2.0) * torch.pi/2.0
+            dot_beta = lambda t: -torch.sin(t * torch.pi/2.0) * torch.pi/2.0
+            name = 'spherical'
+
+        elif isinstance(alpha, str) and alpha.lower() in ['ddim', 'ddpm']:
+            # DDIM/DDPM scheme; see Eq 7 in https://arxiv.org/pdf/2209.03003
+            a = 19.9; b = 0.1
+            alpha = lambda t: torch.exp(-a*(1-t)**2/4.0 - b*(1-t)/2.0)
+            beta = lambda t: (1-alpha(t)**2)**(0.5)
+            name = 'DDIM'
+
+        self.alpha = lambda t: alpha(self.ensure_tensor(t))
+        self.beta = lambda t: beta(self.ensure_tensor(t))
+        if dot_alpha is not None: self.dot_alpha = lambda t: dot_alpha(self.ensure_tensor(t))
+        if dot_beta is not None: self.dot_beta = lambda t: dot_beta(self.ensure_tensor(t))
+        self.name = name
 
     @staticmethod
     def ensure_tensor(x):
@@ -108,10 +228,16 @@ class AffineInterp(nn.Module):
         return value, grad
 
     def get_coeffs(self, t, detach=True):
-        a_t, dot_a_t = self.value_and_grad(self.alpha, t, detach=detach)
-        b_t, dot_b_t = self.value_and_grad(self.beta, t, detach=detach)
-        self.at = a_t; self.bt = b_t; self.dot_at = dot_a_t; self.dot_bt = dot_b_t
-        return a_t, b_t, dot_a_t, dot_b_t
+        if self.dot_alpha is None:
+            at, dot_at = self.value_and_grad(self.alpha, t, detach=detach)
+        else:
+            at = self.alpha(t); dot_at = self.dot_alpha(t)
+        if self.dot_beta is None:
+            bt, dot_bt = self.value_and_grad(self.beta, t, detach=detach)
+        else:
+            bt = self.beta(t); dot_bt = self.dot_beta(t)
+        self.at = at; self.bt = bt; self.dot_at = dot_at; self.dot_bt = dot_bt
+        return at, bt, dot_at, dot_bt
 
     def forward(self, X0, X1, t, detach=True):
         t = self.match_time_dim(t, X1)
@@ -123,7 +249,8 @@ class AffineInterp(nn.Module):
     # Solve equation: xt = at*x1+bt*x0, dot_xt = dot_at*x1+dot_bt*x0
     # Set any of the known variables, and keep the unknowns as None; the solver will fill the unknowns.
     # Example: interp.solve(t, xt=xt, dot_xt=dot_xt); print(interp.x1.shape), print(interp.x0.shape)
-    def solve(self, t, x0=None, x1=None, xt=None, dot_xt=None):
+    def solve(self, t=None, x0=None, x1=None, xt=None, dot_xt=None):
+        if t is None: raise ValueError("t must be provided")
         self.x0 = x0; self.x1 = x1; self.xt = xt; self.dot_xt = dot_xt
         x_not_none = next((v for v in [x0, x1, xt, dot_xt] if v is not None), None)
         t = self.match_time_dim(t, x_not_none)
@@ -157,75 +284,101 @@ def test_affine_interp():
     interp.solve(t,  xt=xt, dot_xt=dot_xt)
     print(interp.x0.shape)
     print(interp.x1.shape)
-    
+
 if __name__ == "__main__":
     test_affine_interp()
-
 
 class RectifiedFlow:
     def __init__(self,
                  # basic
-                 D0 = None,
-                 D1 = None,
-                 paired = False,
+                 dataset= None,
                  pi0= None,
-                 model=None,
                  interp=AffineInterp('straight'),
+                 model=None,
                  device = None,
                  seed = None,
                  # training
                  optimizer=None,
                  time_weight = lambda t: 0*t+1.0,
                  time_wrapper = lambda t: t,
-                 criterion = lambda vt, dot_xt, xt, t, wts: torch.mean(wts * (vt - dot_xt)**2)
+                 criterion = lambda vt, dot_xt, xt, t, wts: torch.mean(wts * (vt - dot_xt)**2),
+                 # training loops
+                 num_iterations=100,
+                 num_epochs=None,
+                 batch_size=64,
                  ):
+        # interp
         self.interp = interp
-        self.pi0 = pi0
-        self.D0 = D0
-        self.D1 = D1
-        self.paired = paired
+
+        # data
+        self.data = dataset
+        self.D0 = dataset.D0
+        self.D1 = dataset.D1
+        self.labels = dataset.labels
+        self.independent_coupling = dataset.independent_coupling
+        self.paired = not self.independent_coupling
+        self.pi0 = pi0 if pi0 is not None else dataset.D0
+
+        # training & model
         self.time_weight = time_weight
         self.time_wrapper = time_wrapper
         self.criterion = criterion
-        self.optimizer = optimizer
         self.device = device
         self.seed = seed
-        self.decoder = None # decode from hidden states 
- 
-        # in case we need to pass some rf configurations into the model
-        if (model is not None) and (hasattr(model, 'rf_setup')) and (callable(getattr(model, 'rf_setup'))):
-            model.rf_setup(self)
-
+        self.decoder = None # decode from hidden states
         self.model = model
-        if (optimizer is None) and (model is not None):
-            optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-2, betas=(0.9, 0.999))
+        self.optimizer = optimizer
+        self.num_iterations = num_iterations
+        self.num_epochs = num_epochs
+        self.batch_size = batch_size
 
-        # velocity is what is actually used at inference, separate it with model to incoporate things like guidance, etc.
-        self.velocity = model
+        # defaults
+        self.config_model()
+        self.set_default_optimizer()
+        self.set_random_seed()
+        self.set_device()
 
-        # Set the random seed if provided
+    # decouple velocity and model if needed 
+    def velocity(self, *args, **kwargs):
+        # Remove 'label' from kwargs if rf.dataset.labels = None
+        if self.labels is None and 'labels' in kwargs and kwargs['labels'] is None: 
+            del kwargs['labels']        
+        return self.model(*args, **kwargs)
+
+
+    # in case we need to pass some rf configurations into the model
+    def config_model(self):
+        if (self.model is not None) and (hasattr(self.model, 'rectifiedflow_setup')) and (callable(getattr(self.model, 'rectifiedflow_setup'))):
+            self.model.rectifiedflow_setup(self)
+
+    def set_default_optimizer(self):
+        if (self.optimizer is None) and (self.model is not None):
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-4, weight_decay=0.0, betas=(0.9, 0.999))
+
+    def set_random_seed(self, seed=None):
+        if seed is None: seed = self.seed
+        self.seed = seed  
         if seed is not None:
-            self.set_seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+            # For deterministic behavior in certain operations (may affect performance)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
 
-        if device is None:
-            self.device = self.get_device()
-
-    def set_seed(self, seed):
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        # For deterministic behavior in certain operations (may affect performance)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-
-    def get_device(self):
-        model = self.model
-        if isinstance(model, nn.Module):
-            for param in model.parameters(): return param.device
-            for buffer in model.buffers(): return buffer.device
-        return torch.device('cpu')
+    def set_device(self):
+        if self.device is None:
+            device = torch.device('cpu')
+            if isinstance(self.D1, torch.Tensor):
+                device = self.D1.device
+            if isinstance(self.model, nn.Module):
+                for param in self.model.parameters():
+                    device = param.device
+                    break
+            self.device = device
+            return device
 
     def ensure_tensor(self, t):
-        if not isinstance(t, torch.Tensor): t = torch.tensor(t, device=self.get_device())
+        if not isinstance(t, torch.Tensor): t = torch.tensor(t, device=self.device)
         return t
 
     def match_time_dim(self, t, x=None):
@@ -237,130 +390,113 @@ class RectifiedFlow:
         t = t.to(x.device)
         return t
 
+    def sample_x0(self, batch_size):
+        return self.pi0.sample([batch_size]).to(self.device)
+
+    def get_loss(self, X0, X1, *args, **kwargs):
+        t = self.draw_time(X0.shape[0])
+        Xt, dot_Xt = self.interp(X0, X1, t)
+        vt = self.model(Xt, t, *args, **kwargs)
+        wts = self.time_weight(t)
+        loss = self.criterion(vt, dot_Xt, Xt, t, wts)
+        return loss
+
+    # for D0~Normal(0,I), Dlogpt(Xt) = -E[X0|Xt]/bt
+    def get_score_function(self, Xt, vt, t):
+        self.assert_canonical()
+        self.interp.solve(t=t, xt=Xt, dot_xt=vt)
+        dlogp = - self.interp.x0/self.interp.bt
+        return dlogp
+
+    def score_function(self, Xt, t, *args, **kwargs):
+        t = self.match_time_dim(t, Xt)
+        vt = self.model(Xt, t, *args, **kwargs)
+        return self.get_score_function(Xt, vt, t)
+
+    # SDE coeffs for dX = vt(Xt)+ .5*sigma_t^2*Dlogp(Xt) + sigma_t*dWt
+    def get_sde_params_by_sigma(self, vt, xt, t, sigma):
+        self.assert_canonical()
+        sigma_t = sigma(t)
+        self.interp.solve(t=t, xt=xt, dot_xt=vt)
+        dlogp = - self.interp.x0/self.interp.bt
+        vt_sde = vt + 0.5* sigma_t**2 * dlogp
+        return vt_sde, sigma_t
+
+    # From SDE coeffs for dX = vt(Xt) - .5*sigma_t^2*E[X0|Xt]/bt + sigma_t*dWt,
+    # let et^2 = sigmat^2/bt, we have sigmat = sqrt(bt) * et, we have:
+    # dX = vt(Xt) - .5*et^2*E[X0|Xt]+ sqrt(bt) * et *dWt
+    def get_stable_sde_params(self, vt, xt, t, e):
+
+        self.assert_canonical()
+        self.interp.solve(t=t, xt=xt, dot_xt=vt)
+        et = e(self.match_time_dim(t,xt))
+        x0_pred  = - self.interp.x0/self.interp.bt
+        vt_sde = vt - x0_pred * et**2 * 0.5
+        sigma_t = et * self.interp.bt**0.5
+
+        #at, bt, dot_at, dot_bt = self.interp.get_coeffs(t)
+        #vt_sde =vt * (1+et) - et * dot_at / at * xt
+        #sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
+        return vt_sde, sigma_t
+
+    def draw_time(self, batch_size):
+        t = self.time_wrapper(torch.rand((batch_size, 1)).to(self.device))
+        return t
+
+    def train(self, num_iterations=100, num_epochs=None, batch_size=64, D0=None, D1=None, optimizer=None, shuffle=True):
+        if optimizer is None: optimizer = self.optimizer
+        if num_iterations is None: num_iterations = self.num_iterations
+        if num_epochs is not None: num_epochs = self.num_epochs
+        self.loss_curve = []
+
+        # Set up dataloader
+        dataloader = torch.utils.data.DataLoader(self.data, batch_size=batch_size, shuffle=shuffle)
+        self.dataloader = dataloader
+
+        # Calculate the total number of batches to process
+        total_batches = num_iterations
+        if num_epochs is not None:
+            total_batches = num_epochs * len(dataloader)
+
+        batch_count = 0
+        while batch_count < total_batches:
+            for batch in dataloader: # batch can be either (X0,X1) or (X0,X1,labels)
+
+                if batch_count >= total_batches: break
+                optimizer.zero_grad()
+
+                # loss & backprop
+                loss = self.get_loss(*batch)
+                loss.backward()
+                optimizer.step()
+
+                # Track loss
+                self.loss_curve.append(loss.item())
+                batch_count += 1
+
     def is_pi0_zero_mean_gaussian(self):
-        # Check if pi0 is a MultivariateNormal distribution
-        return isinstance(self.pi0, dist.MultivariateNormal)  and torch.allclose(self.pi0.mean, torch.zeros_like(self.pi0.mean))
+        # Check if pi0 is a zero-mean Gaussian distribution
+        case1 = isinstance(self.pi0, dist.MultivariateNormal)  and torch.allclose(self.pi0.mean, torch.zeros_like(self.pi0.mean))
+        case2 = isinstance(self.pi0, dist.Normal)  and torch.allclose(self.pi0.mean, torch.zeros_like(self.pi0.loc))
+        return case1 or case2
 
     def is_pi0_standard_gaussian(self):
-        # Check if pi0 is Standard MultivariateNormal
-        if not isinstance(self.pi0, dist.MultivariateNormal): return False
-        if not torch.allclose(self.pi0.mean, torch.zeros_like(self.pi0.mean)): return False
-        if not torch.allclose(self.pi0.covariance_matrix, torch.eye(self.pi0.mean.size(0), device=self.pi0.mean.device)): return False
-        return True
+        # Check if pi0 is Standard Gaussian
+        case1 = isinstance(self.pi0, dist.MultivariateNormal)  \
+                and torch.allclose(self.pi0.mean, self.pi0.mean*0) \
+                and torch.allclose(self.pi0.covariance_matrix, torch.eye(self.pi0.mean.size(0), device=self.pi0.mean.device))
+        case2 = isinstance(self.pi0, dist.Normal)  \
+                and torch.allclose(self.pi0.mean, self.pi0.mean*0) \
+                and torch.allclose(self.pi0.variance, self.pi0.variance*0 + 1)
+        return case1 or case2
 
     def assert_if_pi0_is_standard_gaussian(self):
         if not self.is_pi0_standard_gaussian():
             raise ValueError("pi0 must be a standard Gaussian distribution.")
 
     def assert_canonical(self):
-        if not (self.is_pi0_standard_gaussian() and (self.paired==False)):
+        if not (self.is_pi0_standard_gaussian() and (self.indepdent_coulpling==True)):
             raise ValueError('Must be the Cannonical Case: pi0 must be standard Gaussian and the data must be unpaired (independent coupling)')
-
-    def sample_x0(self, batch_size):
-        return self.pi0.sample([batch_size]).to(self.get_device())
-
-    def get_loss(self, X0, X1, t):
-        Xt, dot_Xt = self.interp(X0, X1, t)
-        vt = self.model(Xt, t)
-        wts = self.time_weight(t)
-        loss = self.criterion(vt, dot_Xt, Xt, t, wts)
-        return loss
-
-    def get_score_function(self, Xt, vt, t):
-        self.assert_canonical()
-        #t = self.match_time_dim(t, Xt)
-        #at, bt, dot_at, dot_bt = self.interp.get_coeffs(t)
-        #dlogp = (vt - dot_at/at * Xt) *(bt**2*dot_at/at - bt * dot_bt)**(-1)
-        self.interp.solve(t, xt=Xt, dot_xt=vt)
-        dlogp = - self.interp.x0/self.interp.bt
-        return dlogp
-
-    def score_function(self, Xt, t):
-        t = self.match_time_dim(t, Xt)
-        vt = self.model(Xt, t)
-        return self.get_score_function(Xt, vt, t)
-
-    def get_sde_params(self, vt, xt, t, e):
-        t = self.match_time_dim(t, xt)
-        et = e(t)
-        at, bt, dot_at, dot_bt = self.interp.get_coeffs(t)
-        v_t =vt * (1+et) - et * dot_at / at * xt
-        sigma_t = (2 * (1-at) * dot_at/(at) * et)**(0.5)
-        return v_t, sigma_t
-
-    def profile_time_wise_loss(self, D0, D1, t_grid=torch.linspace(0,1,10), show_plot=True):
-        time_wise_loss = []
-        for t in t_grid:
-            ts = self.match_time_dim(t, D1)
-            time_wise_loss.append(self.loss(D0, D1, ts))
-        loss_grid = torch.tensor(time_wise_loss)
-        if show_plot:
-            plt.figure(figsize=(4,4))
-            plt.plot(t_grid, loss_grid, '-.')
-        return t_grid, loss_grid
-
-    @staticmethod
-    def draw_sample(D, batch_size):
-        if isinstance(D, dist.Distribution):
-            # if D is a torch Distribution obj, call sample method
-            return D.sample([batch_size])
-        elif isinstance(D, torch.Tensor):
-            # if D is a dataset (tensor), sample a batch.
-            return D[torch.randperm(len(D))[:batch_size]]
-        elif callable(D):
-            return D(batch_size)
-        else:
-            raise NotImplementedError(f"Unsupported type: {type(D)}")
-
-    def draw_pairs(self, batch_size=None, D0=None, D1=None, paired=None):
-        if D0 is None: D0 = self.D0
-        if D1 is None: D1 = self.D1
-        if paired is None: paired = self.paired
-        if batch_size is None: batch_size = self.batch_size
-        draw_sample = self.draw_sample
-
-        if not paired:
-            # Draw unpaired data
-            X1 = draw_sample(D1, batch_size)
-            X0 = draw_sample(D0, batch_size)
-        else:
-            # Draw minibatch of paired data, used for reflow
-            idx = torch.randperm(len(D1))[:batch_size]
-            X0, X1 = D0[idx], D1[idx]
-        return X0, X1
-
-    def draw_time(self, batch_size):
-        t = self.time_wrapper(torch.rand((batch_size, 1)).to(self.get_device()))
-        return t
-
-    def train(self, num_iterations = 100, batch_size=64, D0=None, D1=None, optimizer=None):
-        if D0 is None: D0 = self.D0
-        if D1 is None: D1 = self.D1
-        if optimizer is None: optimizer = self.optimizer
-
-        draw_pairs = self.draw_pairs
-        interp = self.interp
-        model = self.model
-
-        self.loss_curve = []
-        for i in range(num_iterations):
-            optimizer.zero_grad()
-
-            # draw data pairs
-            X0, X1 = draw_pairs(D0=D0, D1=D1, batch_size=batch_size)
-
-            # draw time
-            t = self.draw_time(batch_size)
-
-            # loss
-            loss = self.get_loss(X0, X1, t)
-            loss.backward()
-            optimizer.step()
-
-            # track loss
-            self.loss_curve.append(loss.item())
 
     def plot_loss_curve(self):
           plt.plot(self.loss_curve, '-.')
-
-
