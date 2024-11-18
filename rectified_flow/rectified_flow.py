@@ -450,7 +450,7 @@ class RectifiedFlow:
         self.loss_curve = []
 
         # Set up dataloader
-        dataloader = torch.utils.data.DataLoader(self.data, batch_size=batch_size, shuffle=shuffle)
+        dataloader = torch.utils.data.DataLoader(self.dataset, batch_size=batch_size, shuffle=shuffle)
         self.dataloader = dataloader
 
         # Calculate the total number of batches to process
