@@ -324,7 +324,10 @@ class RFLossFunction:
         time_weights: torch.Tensor,
     ) -> torch.Tensor:
         if self.loss_type == "mse":
-            loss = torch.mean(time_weights * (v_t - dot_Xt)**2)
+            # Calculate per-instance mean squared error along all but the batch dimension
+            per_instance_loss = torch.mean((v_t - dot_Xt)**2, dim=list(range(1, v_t.dim())))
+            # Apply batch-wise weights and compute overall loss
+            loss = torch.mean(time_weights * per_instance_loss)
         else:
             raise NotImplementedError(f"Loss function '{self.loss_type}' is not implemented.")
         
@@ -379,7 +382,7 @@ class RectifiedFlow:
         self,
         X_0: torch.Tensor,
         X_1: torch.Tensor,
-        t: torch.Tensor,
+        t: torch.Tensor = None,
         **kwargs,
     ):
         """
@@ -393,10 +396,11 @@ class RectifiedFlow:
         Returns:
             torch.Tensor: Loss tensor, scalar
         """
-        t = self.sample_time(X_0.shape[0])
+        t = self.sample_time(X_0.shape[0], device=X_0.device, dtype=X_0.dtype) if t is None else t
         X_t, dot_Xt = self.get_interpolation(X_0, X_1, t)
         v_t = self.get_velocity(X_t, t, **kwargs)
         wts = self.time_weight(t)
+        print(f"X_t shape: {X_t.shape}, dot_Xt shape: {dot_Xt.shape}, v_t shape: {v_t.shape}, wts shape: {wts.shape}")
         loss = self.criterion(v_t, dot_Xt, X_t, t, wts)
         return loss
 
