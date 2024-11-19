@@ -11,7 +11,7 @@ from scipy.integrate import solve_ivp
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 from dataclasses import dataclass
 
-def match_time_dim_with_data(
+def match_dim_with_data(
     t: torch.Tensor | float | List[float],
     X_shape: tuple,
     device: torch.device = torch.device("cpu"),
@@ -148,7 +148,14 @@ class AffineInterpSolver:
 
 
 class AffineInterp(nn.Module):
-    def __init__(self, name='straight', alpha=None, beta=None, dot_alpha=None, dot_beta=None):
+    def __init__(
+        self, 
+        name: str = "straight",
+        alpha: Callable | None = None,
+        beta: Callable | None = None,
+        dot_alpha: Callable | None = None,
+        dot_beta: Callable | None = None,
+    ):
         super().__init__()
 
         if name.lower() in ['straight', 'lerp']:
@@ -227,7 +234,7 @@ class AffineInterp(nn.Module):
         return at, bt, dot_at, dot_bt
 
     def forward(self, X0, X1, t, detach=True):
-        t = match_time_dim_with_data(t, X1.shape, device=X1.device, dtype=X1.dtype)
+        t = match_dim_with_data(t, X1.shape, device=X1.device, dtype=X1.dtype)
         a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t, detach=detach)
         Xt = a_t * X1 + b_t * X0
         dot_Xt = dot_a_t * X1 + dot_b_t * X0
@@ -248,33 +255,17 @@ class AffineInterp(nn.Module):
         x_not_none = next((v for v in [x0, x1, xt, dot_xt] if v is not None), None)
         if x_not_none is None:
             raise ValueError("At least two of x0, x1, xt, dot_xt must not be None")
-        t = match_time_dim_with_data(t, x_not_none.shape, device=x_not_none.device, dtype=x_not_none.dtype)
+        t = match_dim_with_data(t, x_not_none.shape, device=x_not_none.device, dtype=x_not_none.dtype)
         at, bt, dot_at, dot_bt = self.get_coeffs(t)
         self.solver.solve(self)
 
-    # Manually coded solution for solving (x0, dot_xt) given (xt, x1)
-    def x0_dot_xt_given_xt_and_x1(self, xt, x1, t):
-        t = match_time_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype)
-        a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t)
-        x0 = (xt - a_t * x1) / b_t
-        dot_xt = dot_a_t * x1 + dot_b_t * x0
-        return x0, dot_xt
 
-    # Manually coded solution for solving (x0, x1) given (xt, dot_xt)
-    def x0_x1_given_xt_and_dot_xt(self, xt, dot_xt, t):
-        t = match_time_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype)
-        a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t)
-        x0 = (dot_a_t * xt - a_t * dot_xt) / (dot_a_t * b_t - a_t * dot_b_t)
-        x1 = (dot_b_t * xt - b_t * dot_xt) / (dot_b_t * a_t - b_t * dot_a_t)
-        return x0, x1
-
-
-class TimeDistribution:
+class TrainTimeSampler:
     def __init__(
         self,
-        dist: str = "uniform",
+        distribution: str = "uniform",
     ):
-        self.dist = dist
+        self.distribution = distribution
 
     @torch.no_grad()
     def __call__(
@@ -283,14 +274,21 @@ class TimeDistribution:
         device: torch.device = torch.device("cpu"),
         dtype: torch.dtype = torch.float32,
     ) -> torch.Tensor:
-        if self.dist == "uniform":
+        """
+        Sample time tensor for training
+
+        Returns:
+            torch.Tensor: Time tensor, shape (batch_size,)
+        """
+        if self.distribution == "uniform":
             t = torch.rand((batch_size,), device=device, dtype=dtype)
         else: # NOTE: will implement different time distributions
             raise NotImplementedError(f"Time distribution '{self.dist}' is not implemented.")
         
         return t
 
-class TimeWeights:
+
+class TrainTimeWeights:
     def __init__(
         self,
         weight: str = "uniform",
@@ -308,6 +306,7 @@ class TimeWeights:
         
         return wts
 
+
 class RFLossFunction:
     def __init__(
         self,
@@ -324,37 +323,83 @@ class RFLossFunction:
         time_weights: torch.Tensor,
     ) -> torch.Tensor:
         if self.loss_type == "mse":
-            # Calculate per-instance mean squared error along all but the batch dimension
             per_instance_loss = torch.mean((v_t - dot_Xt)**2, dim=list(range(1, v_t.dim())))
-            # Apply batch-wise weights and compute overall loss
             loss = torch.mean(time_weights * per_instance_loss)
         else:
             raise NotImplementedError(f"Loss function '{self.loss_type}' is not implemented.")
         
         return loss
 
+
 class RectifiedFlow:
     def __init__(
         self,
-        flow_model: nn.Module = None,
-        interp_func: AffineInterp | str = "straight",
-        time_dist: TimeDistribution | str = "uniform",
-        time_weight: TimeWeights | str = "uniform",
+        data_shape: tuple,
+        model: nn.Module,
+        interp: AffineInterp | str = "straight",
+        noise_distribution: torch.distributions.Distribution | str = "normal",
+        is_independent_coupling: bool = True,
+        train_time_distribution: TrainTimeSampler | str = "uniform",
+        train_time_weight: TrainTimeWeights | str = "uniform",
         criterion: RFLossFunction | str = "mse",
         device: torch.device = torch.device("cpu"),
         dtype: torch.dtype = torch.float32,
         seed: int = 0,
     ):
-        self.flow_model = flow_model 
+        self.data_shape = data_shape
+        self.model = model 
 
-        self.get_interpolation = interp_func if isinstance(interp_func, AffineInterp) else AffineInterp(interp_func)
-        self.sample_time = time_dist if isinstance(time_dist, TimeDistribution) else TimeDistribution(time_dist)
-        self.time_weight = time_weight if isinstance(time_weight, TimeWeights) else TimeWeights(time_weight)
-        self.criterion = criterion if isinstance(criterion, RFLossFunction) else RFLossFunction(criterion)
+        self.interp: AffineInterp = (
+            interp if isinstance(interp, AffineInterp) else AffineInterp(interp)
+        )
+        self.time_sampler: TrainTimeSampler = (
+            train_time_distribution
+            if isinstance(train_time_distribution, TrainTimeSampler)
+            else TrainTimeSampler(train_time_distribution)
+        )
+        self.train_time_weight: TrainTimeWeights = (
+            train_time_weight
+            if isinstance(train_time_weight, TrainTimeWeights)
+            else TrainTimeWeights(train_time_weight)
+        )
+        self.criterion: RFLossFunction = (
+            criterion if isinstance(criterion, RFLossFunction) else RFLossFunction(criterion)
+        )
         
+        self.noise_distribution = noise_distribution if isinstance(noise_distribution, dist.Distribution) else dist.Normal(0, 1).expand(data_shape)
+        self.independent_coupling = is_independent_coupling
+
         self.device = device
         self.dtype = dtype
         self.seed = seed
+
+    def sample_time(self, batch_size: int):
+        return self.time_sampler(batch_size, device=self.device, dtype=self.dtype)
+
+    def sample_noise(self, batch_size: int):
+        return self.noise_distribution.sample((batch_size,)).to(self.device, self.dtype)
+
+    def get_interpolation(
+        self,
+        X_0: torch.Tensor,
+        X_1: torch.Tensor,
+        t: torch.Tensor,
+    ):
+        """
+        Compute the interpolated values X_t and dot_Xt at time t
+
+        Args:
+            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn)
+            X_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
+            t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_dim_with_data
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: X_t, dot_Xt, both of shape (B, D) or (B, D1, D2, ..., Dn)
+        """
+        assert X_0.shape == X_1.shape, "X_0 and X_1 must have the same shape."
+        assert X_0.shape[0] == X_1.shape[0], "Batch size of X_0 and X_1 must match."
+        X_t, dot_Xt = self.interp.forward(X_0, X_1, t, detach=True)
+        return X_t, dot_Xt
 
     def get_velocity(
         self,
@@ -368,21 +413,21 @@ class RectifiedFlow:
 
         Args:
             X (torch.Tensor): X_t, shape (B, D) or (B, D1, D2, ..., Dn)
-            t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_time_dim_with_data
+            t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_dim_with_data
 
         Returns:
             torch.Tensor: Velocity tensor, same shape as X
         """
         assert X.shape[0] == t.shape[0] and t.ndim == 1, "Batch size of X and t must match."
         # NOTE: May do t / velocity transformation, e.g. t = 1 - t, velocity = -velocity
-        velocity = self.flow_model(X, t, **kwargs)
+        velocity = self.model(X, t, **kwargs)
         return velocity
     
     def get_loss(
         self,
         X_0: torch.Tensor,
         X_1: torch.Tensor,
-        t: torch.Tensor = None,
+        t: torch.Tensor | None = None,
         **kwargs,
     ):
         """
@@ -391,81 +436,80 @@ class RectifiedFlow:
         Args:
             X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn)
             X_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
-            t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_time_dim_with_data
+            t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_dim_with_data
+            **kwargs: Additional keyword arguments for the model input
 
         Returns:
             torch.Tensor: Loss tensor, scalar
         """
-        t = self.sample_time(X_0.shape[0], device=X_0.device, dtype=X_0.dtype) if t is None else t
+        # NOTE: check input device and dtype
+        t = self.sample_time(X_0.shape[0]) if t is None else t
         X_t, dot_Xt = self.get_interpolation(X_0, X_1, t)
         v_t = self.get_velocity(X_t, t, **kwargs)
-        wts = self.time_weight(t)
-        print(f"X_t shape: {X_t.shape}, dot_Xt shape: {dot_Xt.shape}, v_t shape: {v_t.shape}, wts shape: {wts.shape}")
+        wts = self.train_time_weight(t)
+        # print(f"X_t shape: {X_t.shape}, dot_Xt shape: {dot_Xt.shape}, v_t shape: {v_t.shape}, wts shape: {wts.shape}")
         loss = self.criterion(v_t, dot_Xt, X_t, t, wts)
         return loss
 
-    # D_0 must ~ Normal(0,I), Dlogpt(Xt) = -E[X0 | Xt] / bt
-    def calc_score_func(self, Xt, vt, t):
+    def get_score_function_from_velocity(self, Xt, vt, t):
+        # pi_0 (noise distribution) must ~ Normal(0,I), Dlogpt(Xt) = -E[X0 | Xt] / bt
         self.assert_canonical()
         self.interp.solve(t=t, xt=Xt, dot_xt=vt)
         dlogp = - self.interp.x0/self.interp.bt
         return dlogp
 
     def get_score_function(self, Xt, t, **kwargs):
-        t = match_time_dim_with_data(t, Xt.shape, device=Xt.device, dtype=Xt.dtype)
-        vt = self.model(Xt, t, **kwargs)
-        return self.calc_score_func(Xt, vt, t)
+        self.assert_canonical()
+        vt = self.get_velocity(Xt, t, **kwargs)
+        return self.get_score_function_from_velocity(Xt, vt, t)
 
-    # SDE coeffs for dX = vt(Xt)+ .5*sigma_t^2*Dlogp(Xt) + sigma_t*dWt
     def get_sde_params_by_sigma(self, vt, xt, t, sigma):
+        # SDE coeffs for dX = vt(Xt) + 0.5*sigma_t^2*Dlogp(Xt) + sigma_t*dWt
         self.assert_canonical()
         sigma_t = sigma(t)
         self.interp.solve(t=t, xt=xt, dot_xt=vt)
         dlogp = - self.interp.x0/self.interp.bt
-        vt_sde = vt + 0.5* sigma_t**2 * dlogp
+        vt_sde = vt + 0.5 * sigma_t**2 * dlogp
         return vt_sde, sigma_t
-
-    # From SDE coeffs for dX = vt(Xt) - .5*sigma_t^2*E[X0|Xt]/bt + sigma_t*dWt,
-    # let et^2 = sigmat^2/bt, we have sigmat = sqrt(bt) * et, we have:
-    # dX = vt(Xt) - .5*et^2*E[X0|Xt]+ sqrt(bt) * et *dWt
+    
     def get_stable_sde_params(self, vt, xt, t, e):
+        # From SDE coeffs for dX = vt(Xt) - .5*sigma_t^2*E[X0|Xt]/bt + sigma_t*dWt,
+        # let et^2 = sigmat^2/bt, we have sigmat = sqrt(bt) * et, we have:
+        # dX = vt(Xt) - .5*et^2*E[X0|Xt]+ sqrt(bt) * et *dWt
         self.assert_canonical()
         self.interp.solve(t=t, xt=xt, dot_xt=vt)
-        et = e(match_time_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype))
+        et = e(match_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype))
         x0_pred  = - self.interp.x0/self.interp.bt
         vt_sde = vt - x0_pred * et**2 * 0.5
         sigma_t = et * self.interp.bt**0.5
-
-        #at, bt, dot_at, dot_bt = self.interp.get_coeffs(t)
-        #vt_sde =vt * (1+et) - et * dot_at / at * xt
-        #sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
+        # at, bt, dot_at, dot_bt = self.interp.get_coeffs(t)
+        # vt_sde =vt * (1+et) - et * dot_at / at * xt
+        # sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
         return vt_sde, sigma_t
 
-    def is_pi0_zero_mean_gaussian(self):
-        # Will be deprecated!!!
-        # Check if pi0 is a zero-mean Gaussian distribution
-        case1 = isinstance(self.pi0, dist.MultivariateNormal)  and torch.allclose(self.pi0.mean, torch.zeros_like(self.pi0.mean))
-        case2 = isinstance(self.pi0, dist.Normal)  and torch.allclose(self.pi0.mean, torch.zeros_like(self.pi0.loc))
-        return case1 or case2
-
     def is_pi0_standard_gaussian(self):
-        # Will be deprecated!!!
-        # Check if pi0 is Standard Gaussian
-        case1 = isinstance(self.pi0, dist.MultivariateNormal)  \
-                and torch.allclose(self.pi0.mean, self.pi0.mean*0) \
-                and torch.allclose(self.pi0.covariance_matrix, torch.eye(self.pi0.mean.size(0), device=self.pi0.mean.device))
-        case2 = isinstance(self.pi0, dist.Normal)  \
-                and torch.allclose(self.pi0.mean, self.pi0.mean*0) \
-                and torch.allclose(self.pi0.variance, self.pi0.variance*0 + 1)
-        return case1 or case2
+        """
+        Check if pi0(noise distribution) is a standard Gaussian distribution
+        """
+        if not isinstance(self.noise_distribution, (dist.Normal, dist.MultivariateNormal)):
+            return False
 
-    def assert_if_pi0_is_standard_gaussian(self):
-        # Will be deprecated!!!
+        mean_zero = torch.allclose(self.noise_distribution.mean, torch.zeros_like(self.noise_distribution.mean))
+        if not mean_zero:
+            return False
+
+        if isinstance(self.noise_distribution, dist.MultivariateNormal):
+            identity = torch.eye(self.noise_distribution.mean.size(0), device=self.noise_distribution.mean.device)
+            cov_identity = torch.allclose(self.noise_distribution.covariance_matrix, identity)
+            return cov_identity
+        else:
+            var_one = torch.allclose(self.noise_distribution.variance, torch.ones_like(self.noise_distribution.variance))
+            return var_one
+
+    def assert_pi0_is_standard_gaussian(self):
         if not self.is_pi0_standard_gaussian():
             raise ValueError("pi0 must be a standard Gaussian distribution.")
 
     def assert_canonical(self):
-        # Will be deprecated!!!
-        return
-        if not (self.is_pi0_standard_gaussian() and (self.indepdent_coulpling==True)):
-            raise ValueError('Must be the Cannonical Case: pi0 must be standard Gaussian and the data must be unpaired (independent coupling)')
+        if not (self.is_pi0_standard_gaussian() and self.independent_coupling):
+            raise ValueError("Must be the canonical case: pi0 must be standard Gaussian and the data must be unpaired (independent coupling).")

@@ -5,7 +5,6 @@ from collections import namedtuple
 
 class Sampler:
     def __init__(self, rf, x0=None, labels = None, num_steps=100, record_traj_period=1, num_points=100, seed = None, time_grid = None):
-
         # read inputs 
         self.rf = rf
         self.xt = x0

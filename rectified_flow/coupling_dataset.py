@@ -2,8 +2,14 @@ import torch
 import torch.distributions as dist
 from torch.utils.data import Dataset, DataLoader
 
+# Reflow Dataset
+#  - (D0, D1) pairs
+
+# 1-rf dataset (D1)
+# check whether is_reflow, if not sample from pi0 distribution
+
 class CouplingDataset(Dataset):
-    def __init__(self, noise=None, data=None, labels=None, independent_coupling=True):
+    def __init__(self, noise=None, data=None, labels=None, reflow=True):
         """
         Initialize the dataset with noise (D0), data (D1), and optional labels.
 
