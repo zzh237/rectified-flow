@@ -16,6 +16,7 @@ def match_dim_with_data(
     X_shape: tuple,
     device: torch.device = torch.device("cpu"),
     dtype: torch.dtype = torch.float32,
+    expand_dim: bool = True,
 ):
     """
     Prepares the time tensor by reshaping it to match the dimensions of X.
@@ -66,8 +67,10 @@ def match_dim_with_data(
         raise TypeError(f"t must be a torch.Tensor, float, or a list of floats, but got {type(t)}.")
 
     # Reshape t to have singleton dimensions matching X_shape after the batch dimension
-    expanded_dims = [1] * (ndim - 1)
-    t = t.view(B, *expanded_dims)
+    if expand_dim:
+        expanded_dims = [1] * (ndim - 1)
+        t = t.view(B, *expanded_dims)
+
     return t
 
 
@@ -487,29 +490,44 @@ class RectifiedFlow:
         # sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
         return vt_sde, sigma_t
 
+    def is_pi0_zero_mean_gaussian(self):
+        """Check if pi0 is a zero-mean Gaussian distribution."""
+        is_multivariate_normal = (
+            isinstance(self.noise_distribution, dist.MultivariateNormal) and 
+            torch.allclose(self.noise_distribution.mean, torch.zeros_like(self.noise_distribution.mean))
+        )
+        is_normal = (
+            isinstance(self.noise_distribution, dist.Normal) and 
+            torch.allclose(self.noise_distribution.loc, torch.zeros_like(self.noise_distribution.loc))
+        )
+        return is_multivariate_normal or is_normal
+
     def is_pi0_standard_gaussian(self):
-        """
-        Check if pi0(noise distribution) is a standard Gaussian distribution
-        """
-        if not isinstance(self.noise_distribution, (dist.Normal, dist.MultivariateNormal)):
-            return False
-
-        mean_zero = torch.allclose(self.noise_distribution.mean, torch.zeros_like(self.noise_distribution.mean))
-        if not mean_zero:
-            return False
-
-        if isinstance(self.noise_distribution, dist.MultivariateNormal):
-            identity = torch.eye(self.noise_distribution.mean.size(0), device=self.noise_distribution.mean.device)
-            cov_identity = torch.allclose(self.noise_distribution.covariance_matrix, identity)
-            return cov_identity
-        else:
-            var_one = torch.allclose(self.noise_distribution.variance, torch.ones_like(self.noise_distribution.variance))
-            return var_one
+        """Check if pi0 is a standard Gaussian distribution."""
+        is_multivariate_normal = (
+            isinstance(self.noise_distribution, dist.MultivariateNormal) and
+            torch.allclose(self.noise_distribution.mean, torch.zeros_like(self.noise_distribution.mean)) and
+            torch.allclose(
+                self.noise_distribution.covariance_matrix,
+                torch.eye(self.noise_distribution.mean.size(0), device=self.noise_distribution.mean.device)
+            )
+        )
+        is_normal = (
+            isinstance(self.noise_distribution, dist.Normal) and
+            torch.allclose(self.noise_distribution.mean, torch.zeros_like(self.noise_distribution.mean)) and
+            torch.allclose(self.noise_distribution.variance, torch.ones_like(self.noise_distribution.variance))
+        )
+        return is_multivariate_normal or is_normal
 
     def assert_pi0_is_standard_gaussian(self):
+        """Raise an error if pi0 is not a standard Gaussian distribution."""
         if not self.is_pi0_standard_gaussian():
             raise ValueError("pi0 must be a standard Gaussian distribution.")
 
     def assert_canonical(self):
+        """Raise an error if the distribution is not in canonical form."""
         if not (self.is_pi0_standard_gaussian() and self.independent_coupling):
-            raise ValueError("Must be the canonical case: pi0 must be standard Gaussian and the data must be unpaired (independent coupling).")
+            raise ValueError(
+                "Must be the Canonical Case: pi0 must be a standard Gaussian "
+                "and the data must be unpaired (independent coupling)."
+            )
