@@ -1,262 +1,278 @@
-#@title rectified_flow_samplers
 import torch
+import random
+import numpy as np
+
 import matplotlib.pyplot as plt
-from collections import namedtuple
+
+from rectified_flow.rectified_flow import RectifiedFlow, match_dim_with_data
 
 class Sampler:
-    def __init__(self, rf, x0=None, labels = None, num_steps=100, record_traj_period=1, num_points=100, seed = None, time_grid = None):
+    ODE_SAMPLING_STEP_LIMIT = 1000
 
-        # read inputs 
-        self.rf = rf
-        self.xt = x0
-        self.num_steps = num_steps 
-        self.labels = labels 
-        self.record_traj_period = record_traj_period 
-        self.num_points = num_points 
+    def __init__( # NOTE: consider using dataclass config
+        self, 
+        rectified_flow: RectifiedFlow,
+        X_0: torch.Tensor | None = None, 
+        model_kwargs: dict | None = None,
+        num_steps: int = 100,
+        record_traj_period: int = 1,
+        num_samples: int = 100,
+        seed: int = 0, 
+        time_grid: list[float] | torch.Tensor | None = None,
+        callbacks: list[callable] | None = None
+    ):
         self.seed = seed 
-        self.time_grid = time_grid 
-        self.maximum_num_steps = 100000 
+        self.set_seed(seed) 
+
+        self.rf_func = rectified_flow
+        self.model_kwargs = model_kwargs or {}
+        self.num_steps = num_steps 
+        self.num_samples = num_samples 
 
         # prepare 
-        self.set_random_seed() 
-        self.process_args()
-        self.set_default_time_grid() 
-        self.initialize() 
-        self.set_recording_time_grid() 
-        self.results = None
-
-    def set_random_seed(self, seed=None):
-        if seed is None: seed = self.seed
-        self.seed = seed  
-        if seed is not None:
-            torch.manual_seed(seed)
-            torch.cuda.manual_seed_all(seed)
-            # For deterministic behavior in certain operations (may affect performance)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-
-    def process_args(self):
-        # overwrite num_points if needed
-        if self.xt is not None:
-            self.num_points = self.xt.shape[0]
-        elif self.labels is not None:
-            self.num_points = self.labels.shape[0]
-
-        # overwrite num_steps if needed
-        if isinstance(self.time_grid, torch.Tensor):
-            self.num_steps = len(self.time_grid)-1
-
-    # initialize x0 by rf.sample_x0() 
-    def initialize_xt(self):
-        if self.xt is None:
-            self.xt = self.rf.sample_x0(self.num_points)
-
-    # use uniform time grid of size num_steps by default 
-    def set_default_time_grid(self):
-        if self.time_grid is None:
-              self.time_grid = torch.linspace(0, 1, self.num_steps + 1)
-
-    # the time grid on which we record the results 
-    def set_recording_time_grid(self):
-        self.recording_time_grid = list(range(0, self.num_steps + 1, self.record_traj_period)) + ([self.num_steps] if self.num_steps % self.record_traj_period != 0 else [])
-
-    # intialize xt, t, t_next
-    def initialize(self):
-
+        self.X_t = X_0 if X_0 is not None else self.rf_func.sample_noise(num_samples)
+        self.X_0 = self.X_t.clone()
+        self.time_grid = self._prepare_time_grid(time_grid)
+        self.callbacks = callbacks or []
+        self.record_traj_period = record_traj_period 
         self.step_count = 0
-        self.t = self.time_grid[0]
-        self.t_next = self.time_grid[1]
-
-        # initalize x0 
-        self.initialize_xt()
+        self.time_iter = iter(self.time_grid)
+        self.t = next(self.time_iter)
+        self.t_next = next(self.time_iter)
 
         # recording trajectories 
-        self.trajectories = [self.xt]
-        self.time_points = [self.t] 
+        self._trajectories = [self.X_t.clone().cpu()]
+        self._time_points = [self.t]
 
-    # use self.labels by default
+    @staticmethod
+    def set_seed(seed: int):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed) 
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+    def _prepare_time_grid(self, time_grid):
+        # NOTE: consider incorporating timeshift
+        # ensure t is in float32
+        if time_grid is None:
+            return np.linspace(0, 1, self.num_steps + 1).tolist()
+        else:
+            assert len(time_grid) == self.num_steps + 1, "Time grid must have num_steps + 1 elements"
+            if isinstance(time_grid, torch.Tensor):
+                time_grid = time_grid.tolist()
+            elif isinstance(time_grid, np.ndarray):
+                time_grid = time_grid.tolist()
+            elif not isinstance(time_grid, list):
+                time_grid = list(time_grid)
+            return time_grid
+
     def get_velocity(self): 
-        xt, t, labels = self.xt, self.t, self.labels          
-        t = self.rf.match_time_dim(t, xt) 
-        return self.rf.velocity(xt, t, labels=labels) 
+        X_t, t, model_kwargs = self.X_t, self.t, self.model_kwargs
+        t = match_dim_with_data(t, X_t.shape, X_t.device, X_t.dtype, expand_dim=False)
+        return self.rf_func.get_velocity(X_t, t, **model_kwargs)
 
     def step(self):
-        raise NotImplementedError("Sampler subclass must implement the step method.")
+        """
+        Performs a single integration step.
+        This method should be overridden by subclasses.
+        """
+        raise NotImplementedError("Subclasses should implement this step method.")
 
     def set_next_time_point(self):
-        self.t_next = self.time_grid[self.step_count+1]
-        self.step_count = self.step_count+1
+        """Advances to the next time point."""
+        self.step_count += 1
+        try:
+            self.t = self.t_next
+            self.t_next = next(self.time_iter)
+        except StopIteration:
+            self.t_next = None
 
     def stop(self):
-        return (self.t >= 1.0-1e-6) or (self.step_count >= self.maximum_num_steps)
+        """Determines whether the sampling should stop."""
+        return (
+            self.t_next is None
+            or self.step_count >= self.ODE_SAMPLING_STEP_LIMIT
+            or self.t >= 1.0 - 1e-6
+        )
 
-    def record_trajectories(self):
-        if self.step_count in self.recording_time_grid:
-            self.trajectories.append(self.xt)
-            self.time_points.append(self.t)
+    def record(self):
+        """Records trajectories and other information."""
+        if self.step_count % self.record_traj_period == 0:
+            self._trajectories.append(self.X_t.detach().clone().cpu())
+            self._time_points.append(self.t)
 
-    def record_other_information(self):
-        pass
+            # Callbacks can be used for logging or additional recording
+            for callback in self.callbacks:
+                callback(self)
 
-    def sample(self):
+    @torch.inference_mode()
+    def sample_loop(self):
+        """Runs the sampling process"""
+        while not self.stop():
+            self.step()
+            self.record()
+            self.set_next_time_point()
+        return self
 
-        # initialize
-        self.initialize()
+    @property
+    def trajectories(self) -> list[torch.Tensor]:
+        """List of recorded trajectories."""
+        return self._trajectories
 
-        with torch.no_grad():
-            while True:
-
-                # update t and xt
-                self.step()
-
-                # record information
-                self.record_trajectories()
-                self.record_other_information()
-
-                # stop criterion
-                if self.stop(): break
-
-                # update t_next
-                self.set_next_time_point()
-
-
-        return self;
-
-    def plot_2d_results(self, num_trajectories = 50, markersize=3, dimensions=[0,1], alpha_trajectories=0.5, alpha_generated_points=1, alpha_true_points=1):
-        dim0 = dimensions[0]; dim1 = dimensions[1]
-        xtraj = torch.stack(self.trajectories).detach().cpu().numpy()
-        try:
-            if isinstance(self.rf.D1, torch.Tensor):
-                plt.plot(self.rf.D1[:, dim0].detach().cpu().numpy() , self.rf.D1[:, dim1].detach().cpu().numpy() , '.', label='D1', markersize=markersize, alpha=alpha_true_points)
-            plt.plot(xtraj[0][:, dim0], xtraj[0][:, dim1], '.', label='D0', markersize=markersize,alpha=alpha_true_points)
-        except:
-            pass
-
-        plt.plot(xtraj[-1][:, dim0], xtraj[-1][:, dim1], 'r.', label='gen', markersize=markersize, alpha = alpha_generated_points)
-        plt.plot(xtraj[:, :num_trajectories, dim0], xtraj[:, :num_trajectories, dim1], '--g', alpha=alpha_trajectories)
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    @property
+    def time_points(self) -> list[float]:
+        """List of recorded time points."""
+        return self._time_points
 
 
 class EulerSampler(Sampler):
     def step(self):
-        t, t_next, xt = self.t, self.t_next, self.xt
-        vt = self.get_velocity()
-        self.xt = xt + (t_next - t) * vt
-        self.t = t_next
+        t, t_next, X_t = self.t, self.t_next, self.X_t
+        v_t = self.get_velocity()
+        self.X_t = X_t + (t_next - t) * v_t
+
 
 class CurvedEulerSampler(Sampler):
     def step(self):
+        t, t_next, X_t = self.t, self.t_next, self.X_t
+        v_t = self.get_velocity()
 
-        t, t_next, xt = self.t, self.t_next, self.xt
-        vt = self.get_velocity()
+        self.rf_func.interp.solve(t, xt=X_t, dot_xt=v_t)
+        X_1_pred = self.rf_func.interp.x1
+        X_0_pred = self.rf_func.interp.x0
 
-        self.rf.interp.solve(t, xt=xt, dot_xt=vt)
-        x1_pred = self.rf.interp.x1
-        x0_pred = self.rf.interp.x0
         # interplate to find x_{t_next}
-        self.rf.interp.solve(t_next, x0=x0_pred, x1=x1_pred)
-        xt = self.rf.interp.xt
+        self.rf_func.interp.solve(t_next, x0=X_0_pred, x1=X_1_pred)
+        self.X_t = self.rf_func.interp.xt
 
-        self.xt = xt 
-        self.t = t_next
 
 class NoiseRefreshSampler(Sampler):
-    def __init__(self, *args, noise_replacement_rate = lambda t: 0.5, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.noise_replacement_rate = noise_replacement_rate # should be in [0,1]
-        assert (self.rf.paired==False and self.rf.is_pi0_zero_mean_gaussian()==True), 'pi0 must be a zero mean gaussian and must use indepdent coupling'
+    def __init__(self, noise_replacement_rate=lambda t: 0.5, **kwargs): 
+        super().__init__(**kwargs)  
+        self.noise_replacement_rate = noise_replacement_rate
+        assert (self.rf_func.independent_coupling and self.rf_func.is_pi0_zero_mean_gaussian), \
+            'pi0 must be a zero mean gaussian and must use indepdent coupling'
 
     def step(self):
+        """Perform a single step of the sampling process."""
+        t, t_next, X_t = self.t, self.t_next, self.X_t
+        v_t = self.get_velocity()
 
-        t, t_next, xt = self.t, self.t_next, self.xt
-        vt = self.get_velocity()
+        # Given xt and dot_xt = vt, find the corresponding endpoints x0 and x1
+        self.rf_func.interp.solve(t, xt=X_t, dot_xt=v_t)
+        X_1_pred = self.rf_func.interp.x1
+        X_0_pred = self.rf_func.interp.x0
 
-        # given xt, and dot_xt = vt, find the corresponding end points x0, x1
-        self.rf.interp.solve(t, xt=xt, dot_xt=vt)
-        x1_pred = self.rf.interp.x1
-        x0_pred = self.rf.interp.x0
+        # Randomize x0_pred by replacing part of it with new noise
+        noise = self.rf_func.sample_noise(self.num_samples)
+        noise_replacement_factor = self.noise_replacement_rate(t)
+        X_0_pred_refreshed = (
+            (1 - noise_replacement_factor**2)**0.5 * X_0_pred +
+            noise * noise_replacement_factor
+        )
 
-        # randomize x0_pred by replacing part of it with new noise
-        noise = rf.sample_x0(xt.shape[0])
-        x0_pred_noise = (1-self.noise_replacement_rate(t)**2)**(0.5) * x0_pred + noise * self.noise_replacement_rate(t)
-
-        # interplate to find xt at t_next
-        self.rf.interp.solve(t_next, x0=x0_pred_noise, x1=x1_pred)
-        xtnext = self.rf.interp.xt
-
-        self.xt = xtnext
-        self.t = t_next
-
+        # Interpolate to find xt at t_next
+        self.rf_func.interp.solve(t_next, x0=X_0_pred_refreshed, x1=X_1_pred)
+        self.X_t = self.rf_func.interp.xt
 
 
 class OverShootingSampler(Sampler):
-    def __init__(self, rf,
-                 c=1.0,
-                 overshooting_method='t+dt*(1-t)', **kwargs):
-        super().__init__(rf, **kwargs)
+    def __init__(self, c=1.0, overshooting_method='t + dt * (1 - t)', **kwargs):
+        super().__init__(**kwargs)
         self.c = c
 
         # Define overshooting method
         if callable(overshooting_method):
             self.overshooting = overshooting_method
         elif isinstance(overshooting_method, str):
-            self.overshooting = eval(f"lambda t, dt: {overshooting_method}")
+            try:
+                self.overshooting = eval(f"lambda t, dt: {overshooting_method}")
+            except SyntaxError:
+                raise ValueError(f"Invalid overshooting method: {overshooting_method}")
         else:
-            raise NotImplementedError("Invalid overshooting method provided")
+            raise ValueError("Invalid overshooting method provided. Must be a string or callable.")
 
-        assert (rf.is_pi0_zero_mean_gaussian() and rf.paired==False), "pi0 must be a zero-mean Gaussian distribution, and the coupling must be independent."
+        # Ensure rf meets required conditions
+        if not (self.rf_func.is_pi0_zero_mean_gaussian() and self.rf_func.independent_coupling):
+            raise ValueError(
+                "pi0 must be a zero-mean Gaussian distribution, and the coupling must be independent."
+            )
 
     def step(self):
-        t, t_next, xt = self.t, self.t_next, self.xt
-        vt = self.get_velocity()
-        alpha = self.rf.interp.alpha
-        beta = self.rf.interp.beta
+        """Perform a single overshooting step."""
+        t, t_next, X_t = self.t, self.t_next, self.X_t
+        v_t = self.get_velocity()
+        alpha = self.rf_func.interp.alpha
+        beta = self.rf_func.interp.beta
 
         # Calculate overshoot time and enforce constraints
-        t_overshoot = min(self.overshooting(t_next,  (t_next - t)*self.c), 1)
-        if t_overshoot < t_next: raise ValueError("t_overshoot cannot be smaller than t_next.")
+        t_overshoot = min(self.overshooting(t_next, (t_next - t) * self.c), 1.0)
+        if t_overshoot < t_next:
+            raise ValueError("t_overshoot cannot be smaller than t_next.")
 
-        # Advance to t_overshoot with ODE
-        xt_overshoot = xt + (t_overshoot - t) * vt
+        # Advance to t_overshoot using ODE
+        X_t_overshoot = X_t + (t_overshoot - t) * v_t
 
         # Apply noise to step back to t_next
         at = alpha(t_next) / alpha(t_overshoot)
         bt = (beta(t_next)**2 - (at * beta(t_overshoot))**2)**0.5
-        noise = self.rf.sample_x0(xt.shape[0])
-        xt = xt_overshoot * at +  noise * bt
-
-        self.xt = xt
-        self.t = t_next 
-
+        noise = self.rf_func.sample_noise(self.num_samples)
+        self.X_t = X_t_overshoot * at + noise * bt
+        
 
 class SDESampler(Sampler):
-    def __init__(self, rf, e = lambda t: 1.0, **kwargs):
-        super().__init__(rf, **kwargs)
+    def __init__(self, e=lambda t: torch.ones_like(t), **kwargs):
+        super().__init__(**kwargs)
         self.e = e
 
-        assert (rf.is_pi0_standard_gaussian() and rf.paired==False), "pi0 must be a standard Gaussian distribution, and the coupling must be independent."
+        if not (self.rf_func.is_pi0_standard_gaussian() and self.rf_func.independent_coupling):
+            raise ValueError(
+                "pi0 must be a standard Gaussian distribution, "
+                "and the coupling must be independent."
+            )
 
     def step(self):
-        t, t_next, xt = self.t, self.t_next, self.xt
-        vt = self.get_velocity()
+        """Perform a single SDE sampling step."""
+        t, t_next, X_t = self.t, self.t_next, self.X_t
+        v_t = self.get_velocity()
 
-        t_ones = t * torch.ones(xt.shape[0], 1).to(xt.device)
+        # Prepare time tensor and ensure it is within bounds
+        t_ones = t * torch.ones((X_t.shape[0],), device=X_t.device)
+        t_ones = match_dim_with_data(t_ones, X_t.shape, X_t.device, X_t.dtype, expand_dim=True)
         t_eps = 1e-12
         t_ones = torch.clamp(t_ones, t_eps, 1 - t_eps)
         step_size = t_next - t
 
-        # Calculate alpha and beta values and their gradients
+        # Calculate alpha, beta, and their gradients
         e_t = self.e(t_ones)
-        a_t, b_t, dot_a_t, dot_b_t = self.rf.interp.get_coeffs(t_ones)
+        a_t, b_t, dot_a_t, dot_b_t = self.rf_func.interp.get_coeffs(t_ones)
 
-        # Model prediction and adjusted velocity
-        v_adj_t = (1 + e_t) * vt - e_t * dot_a_t / a_t * xt
+        # Adjust velocity and calculate noise scale
+        # print(f"e_t: {e_t.shape}, a_t: {a_t.shape}, b_t: {b_t.shape}, dot_a_t: {dot_a_t.shape}, dot_b_t: {dot_b_t.shape}")
+        v_adj_t = (1 + e_t) * v_t - e_t * dot_a_t / a_t * X_t
         sigma_t = torch.sqrt(2 * (b_t**2 * dot_a_t / a_t - dot_b_t * b_t) * e_t)
 
-        # Predicted x1 and update to xt with added noise
-        x1_pred = xt + (1 - t) * vt
-        noise = self.rf.sample_x0(xt.shape[0])
-        xt = xt + step_size * v_adj_t + sigma_t * (step_size)**(0.5) * noise
+        # Predict x1 and update xt with noise
+        X_1_pred = X_t + (1 - t) * v_t
+        noise = self.rf_func.sample_noise(self.num_samples)
+        self.X_t = X_t + step_size * v_adj_t + sigma_t * step_size**0.5 * noise
 
-        self.xt = xt
-        self.t = t_next 
+
+# NOTE: will move this into visualization module
+def plot_2d_results(num_trajectories = 50, markersize=3, dimensions=[0,1], alpha_trajectories=0.5, alpha_generated_points=1, alpha_true_points=1):
+    dim0 = dimensions[0]; dim1 = dimensions[1]
+    xtraj = torch.stack(self.trajectories).detach().cpu().numpy()
+    try:
+        if isinstance(self.rf.D1, torch.Tensor):
+            plt.plot(self.rf.D1[:, dim0].detach().cpu().numpy() , self.rf.D1[:, dim1].detach().cpu().numpy() , '.', label='D1', markersize=markersize, alpha=alpha_true_points)
+        plt.plot(xtraj[0][:, dim0], xtraj[0][:, dim1], '.', label='D0', markersize=markersize,alpha=alpha_true_points)
+    except:
+        pass
+
+    plt.plot(xtraj[-1][:, dim0], xtraj[-1][:, dim1], 'r.', label='gen', markersize=markersize, alpha = alpha_generated_points)
+    plt.plot(xtraj[:, :num_trajectories, dim0], xtraj[:, :num_trajectories, dim1], '--g', alpha=alpha_trajectories)
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
