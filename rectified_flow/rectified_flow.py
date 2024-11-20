@@ -340,7 +340,7 @@ class RectifiedFlow:
         data_shape: tuple,
         model: nn.Module,
         interp: AffineInterp | str = "straight",
-        noise_distribution: torch.distributions.Distribution | str = "normal",
+        prior_distribution: torch.distributions.Distribution | str = "normal",
         is_independent_coupling: bool = True,
         train_time_distribution: TrainTimeSampler | str = "uniform",
         train_time_weight: TrainTimeWeights | str = "uniform",
@@ -369,7 +369,7 @@ class RectifiedFlow:
             criterion if isinstance(criterion, RFLossFunction) else RFLossFunction(criterion)
         )
         
-        self.noise_distribution = noise_distribution if isinstance(noise_distribution, dist.Distribution) else dist.Normal(0, 1).expand(data_shape)
+        self.pi_0 = prior_distribution if isinstance(prior_distribution, dist.Distribution) else dist.Normal(0, 1).expand(data_shape)
         self.independent_coupling = is_independent_coupling
 
         self.device = device
@@ -380,7 +380,7 @@ class RectifiedFlow:
         return self.time_sampler(batch_size, device=self.device, dtype=self.dtype)
 
     def sample_noise(self, batch_size: int):
-        return self.noise_distribution.sample((batch_size,)).to(self.device, self.dtype)
+        return self.pi_0.sample((batch_size,)).to(self.device, self.dtype)
 
     def get_interpolation(
         self,
@@ -481,7 +481,7 @@ class RectifiedFlow:
         # dX = vt(Xt) - .5*et^2*E[X0|Xt]+ sqrt(bt) * et *dWt
         self.assert_canonical()
         self.interp.solve(t=t, xt=xt, dot_xt=vt)
-        et = e(match_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype))
+        et = e(self.match_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype))
         x0_pred  = - self.interp.x0/self.interp.bt
         vt_sde = vt - x0_pred * et**2 * 0.5
         sigma_t = et * self.interp.bt**0.5
@@ -493,29 +493,37 @@ class RectifiedFlow:
     def is_pi0_zero_mean_gaussian(self):
         """Check if pi0 is a zero-mean Gaussian distribution."""
         is_multivariate_normal = (
-            isinstance(self.noise_distribution, dist.MultivariateNormal) and 
-            torch.allclose(self.noise_distribution.mean, torch.zeros_like(self.noise_distribution.mean))
+            isinstance(self.pi_0, dist.MultivariateNormal) and 
+            torch.allclose(self.pi_0.mean, torch.zeros_like(self.pi_0.mean))
         )
         is_normal = (
-            isinstance(self.noise_distribution, dist.Normal) and 
-            torch.allclose(self.noise_distribution.loc, torch.zeros_like(self.noise_distribution.loc))
+            isinstance(self.pi_0, dist.Normal) and 
+            torch.allclose(self.pi_0.loc, torch.zeros_like(self.pi_0.loc))
         )
         return is_multivariate_normal or is_normal
+    
+    def match_dim_with_data(
+        self,
+        t: torch.Tensor | float | List[float],
+        X_shape: tuple,
+        expand_dim: bool = True,
+    ):
+        return match_dim_with_data(t, X_shape, device=self.device, dtype=self.dtype, expand_dim=expand_dim)
 
     def is_pi0_standard_gaussian(self):
         """Check if pi0 is a standard Gaussian distribution."""
         is_multivariate_normal = (
-            isinstance(self.noise_distribution, dist.MultivariateNormal) and
-            torch.allclose(self.noise_distribution.mean, torch.zeros_like(self.noise_distribution.mean)) and
+            isinstance(self.pi_0, dist.MultivariateNormal) and
+            torch.allclose(self.pi_0.mean, torch.zeros_like(self.pi_0.mean)) and
             torch.allclose(
-                self.noise_distribution.covariance_matrix,
-                torch.eye(self.noise_distribution.mean.size(0), device=self.noise_distribution.mean.device)
+                self.pi_0.covariance_matrix,
+                torch.eye(self.pi_0.mean.size(0), device=self.pi_0.mean.device)
             )
         )
         is_normal = (
-            isinstance(self.noise_distribution, dist.Normal) and
-            torch.allclose(self.noise_distribution.mean, torch.zeros_like(self.noise_distribution.mean)) and
-            torch.allclose(self.noise_distribution.variance, torch.ones_like(self.noise_distribution.variance))
+            isinstance(self.pi_0, dist.Normal) and
+            torch.allclose(self.pi_0.mean, torch.zeros_like(self.pi_0.mean)) and
+            torch.allclose(self.pi_0.variance, torch.ones_like(self.pi_0.variance))
         )
         return is_multivariate_normal or is_normal
 

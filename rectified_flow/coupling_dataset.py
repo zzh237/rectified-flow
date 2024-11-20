@@ -1,43 +1,57 @@
 import torch
 import torch.distributions as dist
 from torch.utils.data import Dataset, DataLoader
-
-# Reflow Dataset
-#  - (D0, D1) pairs
-
-# 1-rf dataset (D1)
-# check whether is_reflow, if not sample from pi0 distribution
+from torch.utils.data import Subset
+import torchvision.transforms as transforms
+from PIL import Image
+import os
+from pathlib import Path
+from functools import partial
+from typing import Callable, Any
 
 class CouplingDataset(Dataset):
-    def __init__(self, noise=None, data=None, labels=None, reflow=True):
+    def __init__(
+        self, 
+        D1: torch.utils.data.Dataset | torch.Tensor | dist.Distribution | Callable,
+        D0: torch.utils.data.Dataset | torch.Tensor | dist.Distribution | Callable | None = None,
+        reflow: bool = False,
+    ):
         """
-        Initialize the dataset with noise (D0), data (D1), and optional labels.
+        A dataset that provides coupled samples from D0 and D1.
 
         Args:
-            Uncoupled dataset:
-                noise: Distribution or None. If None, defaults to standard normal distribution.
-                data: Tensor, distribution, or callable for data samples.
-                labels: Optional tensor for labels.
-                independent_coupling: If True, D0 and D1 are sampled independently.
-            Coupled dataset:
-                noise: Tensor
-                data: Tensor
-                labels: Optional tensor for labels.
-                independent_coupling: If False, D0 and D1 are paired samples.
+            D1: Dataset, Tensor, distribution, or callable.
+                The target data samples.
+                All should return data after applying transforms, such as ToTensor().
+            D0: None (default), Dataset, Tensor, distribution, or callable.
+                The noise data samples. If None and reflow=False, defaults to standard normal.
+            reflow: bool.
+                If True, D0 and D1 are paired samples.
+                If False, D0 is generated independently.
         """
-        self.D1 = data
-        self.D0 = noise if noise is not None else self._set_default_noise()
-        self.labels = labels
-        self.independent_coupling = independent_coupling
-        self.paired = not independent_coupling
-        self._varlidate_inputs()
-        self.default_dataset_length = 10000
+        self.D1 = D1
+        self.D0 = D0
+        self.reflow = reflow
+
+        self.D1_mode = self._get_D_mode(self.D1)
+        
+        if self.D0 is None and not self.reflow:
+            self.D0 = self._set_default_noise()
+            self.D0_mode = 'distribution'
+        else:
+            self.D0_mode = self._get_D_mode(self.D0)
+
+        self.length = self._determine_length()
+
+        self._validate_inputs()
 
     def _get_D_mode(self, D):
         if D is None:
-            return 'default_noise'
+            return 'none'
         elif isinstance(D, torch.Tensor):
             return 'tensor'
+        elif isinstance(D, torch.utils.data.Dataset):
+            return 'dataset'
         elif isinstance(D, torch.distributions.Distribution):
             return 'distribution'
         elif callable(D):
@@ -45,88 +59,112 @@ class CouplingDataset(Dataset):
         else:
             raise NotImplementedError(f"Unsupported type: {type(D)}")
 
-    def randomize_D0_index_if_needed(self, index):
-        """Randomize indices for D0 if pairing=False and D0 is Tensor."""
-        if not self.paired and isinstance(self.D0, torch.Tensor):
-            return torch.randint(0, len(self.D0), (1,)).item()
-        else:
-            return index
-
     def _set_default_noise(self):
-        """Set up default noise as a standard normal matching the sample shape of D1."""
-        data_shape = self.draw_sample(self.D1, 0).shape
-        return dist.Normal(torch.zeros(data_shape), torch.ones(data_shape))
+        # Need to know sample shape
+        sample_shape = self._get_sample_shape(self.D1)
+        return dist.Normal(torch.zeros(sample_shape), torch.ones(sample_shape))
 
-    @staticmethod
-    def draw_sample(D, index):
-        """
-        Draw a sample based on the type of D (tensor, distribution, or callable).
-        Returns D[index] if D is a tensor, otherwise a sample from D (index ignored).
-        """
-        if isinstance(D, dist.Distribution):
-            return D.sample([1]).squeeze(0)
-        elif isinstance(D, torch.Tensor):
-            return D[index]
-        elif callable(D):
-            return D(1)
+    def _get_sample_shape(self, D):
+        sample = self._get_sample(D, 0, self._get_D_mode(D))
+        if isinstance(sample, torch.Tensor):
+            return sample.shape
+        elif isinstance(sample, (tuple, list)):
+            # Assume the first element is the data
+            return sample[0].shape
+        elif isinstance(sample, dict):
+            # Assume there is a key 'data' or take the first item
+            return next(iter(sample.values())).shape
         else:
-            raise NotImplementedError(f"Unsupported type: {type(D)}")
+            raise NotImplementedError(f"Cannot determine sample shape for type: {type(sample)}")
+
+    def _determine_length(self):
+        if self.reflow:
+            len_D1 = self._get_length(self.D1)
+            len_D0 = self._get_length(self.D0)
+            assert len_D1 == len_D0, "D0 and D1 must have the same length when reflow=True"
+            return len_D1
+        else:
+            return self._get_length(self.D1)
+
+    def _get_length(self, D):
+        if isinstance(D, torch.Tensor) or isinstance(D, torch.utils.data.Dataset):
+            return len(D)
+        else:
+            return self.default_length
 
     def __len__(self):
-        """Return the length of D1 if it's a tensor, otherwise default."""
-        return len(self.D1) if isinstance(self.D1, torch.Tensor) else self.default_dataset_length
+        return self.length
 
     def __getitem__(self, index):
-        """Retrieve a sample from D0 and D1, and labels if provided."""
-        X0 = self.draw_sample(self.D0, self.randomize_D0_index_if_needed(index))
-        X1 = self.draw_sample(self.D1, index)
-        if self.labels is not None:
-            label = self.draw_sample(self.labels, index)
-            return X0, X1, label
+        X1 = self._get_sample(self.D1, index, self.D1_mode)
+        if self.reflow:
+            X0 = self._get_sample(self.D0, index, self.D0_mode)
         else:
-            return X0, X1
-
-    # Input validation based on pairing
-    def _varlidate_inputs(self):
-        if self.paired:
-            if self.labels is None:
-                assert isinstance(self.D0, torch.Tensor) and isinstance(self.D1, torch.Tensor) and len(self.D0) == len(self.D1), \
-                    "D0 and D1 must be tensors of the same length when paired is True."
+            if self.D0_mode == 'distribution':
+                X0 = None  # Will be handled in collate_fn
             else:
-                assert isinstance(self.D0, torch.Tensor) and isinstance(self.D1, torch.Tensor) and isinstance(self.labels, torch.Tensor) \
-                      and len(self.D0) == len(self.D1) == len(self.labels), \
-                    "D0, D1, and labels must be tensors of the same length when paired is True."
+                X0 = self._get_sample(self.D0, index, self.D0_mode)
+        return X0, X1
+
+    def _get_sample(self, D, index, mode):
+        if mode == 'tensor':
+            return D[index]
+        elif mode == 'dataset':
+            sample = D[index]
+            return sample  # Return full sample (could be tuple or dict)
+        elif mode == 'distribution':
+            # Return None, will be handled in collate_fn
+            return None
+        elif mode == 'callable':
+            return D()
+        elif mode == 'none':
+            return None
         else:
-            if self.labels is not None:
-                assert isinstance(self.D1, torch.Tensor) and isinstance(self.labels, torch.Tensor) and len(self.D1) == len(self.labels), \
-                    "D1 and labels must be tensors of the same length when labels are given."
+            raise NotImplementedError(f"Unsupported mode: {mode}")
 
-# Testing code
-def test_coupling_dataset():
-    # Test data tensor with more than two dimensions
-    data = torch.randn(5, 3,4)  # 100 samples, each of shape (3, 4, 4)
-    labels = torch.randint(0, 2, (5,))  # Binary labels for testing
+    def _validate_inputs(self):
+        if self.reflow:
+            # D0 and D1 must be datasets or tensors of same length
+            assert self.D0_mode in ['tensor', 'dataset'], "When reflow=True, D0 must be a tensor or dataset"
+            assert self.D1_mode in ['tensor', 'dataset'], "When reflow=True, D1 must be a tensor or dataset"
+            len_D0 = self._get_length(self.D0)
+            len_D1 = self._get_length(self.D1)
+            assert len_D0 == len_D1, "D0 and D1 must have the same length when reflow=True"
+        else:
+            # D1 must be provided
+            assert self.D1 is not None, "D1 must be provided"
 
-    # Case 1: Independent dataset with default noise as standard normal
-    independent_dataset_default_noise = CouplingDataset(data=data, independent_coupling=True)
-    independent_dataloader_default_noise = DataLoader(independent_dataset_default_noise, batch_size=2)
+    default_length = 10000
 
-    print("Testing independent dataset with default standard normal noise:")
-    for X0, X1 in independent_dataloader_default_noise:
-        #assert X0.shape == X1.shape == (10, 3, 4, 4), "Independent samples should have the same shape"
-        print("Independent batch with default standard normal noise:", X0.shape, X1.shape)
+# Custom collate function
+def coupling_collate_fn(batch, D0_distribution=None):
+    X0_list, X1_list = zip(*batch)
+    # Handle X0_list
+    if all(x is None for x in X0_list) and D0_distribution is not None:
+        batch_size = len(X0_list)
+        # Sample batch from D0 distribution
+        X0_batch = D0_distribution.sample([batch_size])
+    else:
+        X0_batch = collate_batch_elements(X0_list)
 
-    # Case 2: Independent dataset with custom noise distribution
-    noise_dist = dist.Normal(torch.zeros(3), torch.ones(3))  # Distribution matching (3, 4, 4) shape
-    data = torch.randn(5, 3)  # 100 samples, each of shape (3, 4, 4)
-    independent_dataset_dist = CouplingDataset(noise=noise_dist, data=data, independent_coupling=True)
-    independent_dataloader_dist = DataLoader(independent_dataset_dist, batch_size=2, drop_last=True)
+    # Handle X1_list
+    X1_batch = collate_batch_elements(X1_list)
 
-    print("\nTesting independent dataset with custom noise distribution:")
-    for X0, X1 in independent_dataloader_dist:
-        #assert X0.shape == X1.shape == (10, 3, 4, 4), "Independent samples should have the same shape"
-        print("Independent batch with noise from distribution:", X0.shape, X1.shape)
+    return X0_batch, X1_batch
 
-# Run tests
-if __name__ == '__main__':
-    test_coupling_dataset()
+def collate_batch_elements(batch_elements):
+    if isinstance(batch_elements[0], torch.Tensor):
+        return torch.stack(batch_elements)
+    elif isinstance(batch_elements[0], (tuple, list)):
+        # Recursively collate each element in the tuple/list
+        transposed = list(zip(*batch_elements))
+        return [collate_batch_elements(elements) for elements in transposed]
+    elif isinstance(batch_elements[0], dict):
+        # Recursively collate each value in the dict
+        collated = {}
+        for key in batch_elements[0]:
+            collated[key] = collate_batch_elements([d[key] for d in batch_elements])
+        return collated
+    else:
+        # If it's a scalar or unstackable type, return as a list
+        return batch_elements
