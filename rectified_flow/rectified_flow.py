@@ -340,7 +340,7 @@ class RectifiedFlow:
         data_shape: tuple,
         model: nn.Module,
         interp: AffineInterp | str = "straight",
-        pi_0: torch.distributions.Distribution | str = "normal",
+        prior_distribution: torch.distributions.Distribution | str = "normal",
         is_independent_coupling: bool = True,
         train_time_distribution: TrainTimeSampler | str = "uniform",
         train_time_weight: TrainTimeWeights | str = "uniform",
@@ -369,7 +369,7 @@ class RectifiedFlow:
             criterion if isinstance(criterion, RFLossFunction) else RFLossFunction(criterion)
         )
         
-        self.pi_0 = pi_0 if isinstance(pi_0, dist.Distribution) else dist.Normal(0, 1).expand(data_shape)
+        self.pi_0 = prior_distribution if isinstance(prior_distribution, dist.Distribution) else dist.Normal(0, 1).expand(data_shape)
         self.independent_coupling = is_independent_coupling
 
         self.device = device

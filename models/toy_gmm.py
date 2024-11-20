@@ -12,8 +12,7 @@ def mixture_sample_with_labels(self, sample_shape=torch.Size()):
 
 # Circular GMM Class
 class CircularGMM(dist.MixtureSameFamily):
-    def __init__(self, n_components=6, radius=10, dim=2, std=1.0, device=None):
-        device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, n_components=6, radius=10, dim=2, std=1.0, device=torch.device("cpu")):
         self.device = device
         angles = torch.linspace(0, 2 * torch.pi, n_components + 1)[:-1].to(device)
         means = torch.stack([radius * torch.cos(angles), radius * torch.sin(angles)], dim=1).to(device)
@@ -29,8 +28,7 @@ class CircularGMM(dist.MixtureSameFamily):
 
 # Two-point GMM Class
 class TwoPointGMM(dist.MixtureSameFamily):
-    def __init__(self, x=10.0, y=10.0, std=1.0, device=None):
-        device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+    def __init__(self, x=10.0, y=10.0, std=1.0, device=torch.device("cpu")):
         self.device = device
         means = torch.tensor([[x, y], [x, -y]]).to(device)
         stds = torch.ones(2, 2).to(device) * std
