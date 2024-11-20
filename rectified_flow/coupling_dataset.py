@@ -7,7 +7,7 @@ from PIL import Image
 import os
 from pathlib import Path
 from functools import partial
-from typing import Callable
+from typing import Callable, Any
 
 class CouplingDataset(Dataset):
     def __init__(
@@ -66,7 +66,16 @@ class CouplingDataset(Dataset):
 
     def _get_sample_shape(self, D):
         sample = self._get_sample(D, 0, self._get_D_mode(D))
-        return sample.shape
+        if isinstance(sample, torch.Tensor):
+            return sample.shape
+        elif isinstance(sample, (tuple, list)):
+            # Assume the first element is the data
+            return sample[0].shape
+        elif isinstance(sample, dict):
+            # Assume there is a key 'data' or take the first item
+            return next(iter(sample.values())).shape
+        else:
+            raise NotImplementedError(f"Cannot determine sample shape for type: {type(sample)}")
 
     def _determine_length(self):
         if self.reflow:
@@ -102,9 +111,7 @@ class CouplingDataset(Dataset):
             return D[index]
         elif mode == 'dataset':
             sample = D[index]
-            if isinstance(sample, tuple):
-                sample = sample[0]
-            return sample
+            return sample  # Return full sample (could be tuple or dict)
         elif mode == 'distribution':
             # Return None, will be handled in collate_fn
             return None
@@ -132,11 +139,32 @@ class CouplingDataset(Dataset):
 # Custom collate function
 def coupling_collate_fn(batch, D0_distribution=None):
     X0_list, X1_list = zip(*batch)
-    # Check if X0_list contains all None
+    # Handle X0_list
     if all(x is None for x in X0_list) and D0_distribution is not None:
         batch_size = len(X0_list)
+        # Sample batch from D0 distribution
         X0_batch = D0_distribution.sample([batch_size])
     else:
-        X0_batch = torch.stack(X0_list)
-    X1_batch = torch.stack(X1_list)
+        X0_batch = collate_batch_elements(X0_list)
+
+    # Handle X1_list
+    X1_batch = collate_batch_elements(X1_list)
+
     return X0_batch, X1_batch
+
+def collate_batch_elements(batch_elements):
+    if isinstance(batch_elements[0], torch.Tensor):
+        return torch.stack(batch_elements)
+    elif isinstance(batch_elements[0], (tuple, list)):
+        # Recursively collate each element in the tuple/list
+        transposed = list(zip(*batch_elements))
+        return [collate_batch_elements(elements) for elements in transposed]
+    elif isinstance(batch_elements[0], dict):
+        # Recursively collate each value in the dict
+        collated = {}
+        for key in batch_elements[0]:
+            collated[key] = collate_batch_elements([d[key] for d in batch_elements])
+        return collated
+    else:
+        # If it's a scalar or unstackable type, return as a list
+        return batch_elements
