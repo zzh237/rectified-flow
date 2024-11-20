@@ -7,12 +7,13 @@ from PIL import Image
 import os
 from pathlib import Path
 from functools import partial
+from typing import Callable
 
 class CouplingDataset(Dataset):
     def __init__(
         self, 
-        D1: torch.utils.data.Dataset | torch.Tensor | dist.Distribution | callable,
-        D0: torch.utils.data.Dataset | torch.Tensor | dist.Distribution | callable | None = None,
+        D1: torch.utils.data.Dataset | torch.Tensor | dist.Distribution | Callable,
+        D0: torch.utils.data.Dataset | torch.Tensor | dist.Distribution | Callable | None = None,
         reflow: bool = False,
     ):
         """
@@ -139,33 +140,3 @@ def coupling_collate_fn(batch, D0_distribution=None):
         X0_batch = torch.stack(X0_list)
     X1_batch = torch.stack(X1_list)
     return X0_batch, X1_batch
-
-# Testing code
-def test_coupling_dataset():
-    # Test data tensor with more than two dimensions
-    data = torch.randn(5, 3,4)  # 100 samples, each of shape (3, 4, 4)
-    labels = torch.randint(0, 2, (5,))  # Binary labels for testing
-
-    # Case 1: Independent dataset with default noise as standard normal
-    independent_dataset_default_noise = CouplingDataset(data=data, independent_coupling=True)
-    independent_dataloader_default_noise = DataLoader(independent_dataset_default_noise, batch_size=2)
-
-    print("Testing independent dataset with default standard normal noise:")
-    for X0, X1 in independent_dataloader_default_noise:
-        #assert X0.shape == X1.shape == (10, 3, 4, 4), "Independent samples should have the same shape"
-        print("Independent batch with default standard normal noise:", X0.shape, X1.shape)
-
-    # Case 2: Independent dataset with custom noise distribution
-    noise_dist = dist.Normal(torch.zeros(3), torch.ones(3))  # Distribution matching (3, 4, 4) shape
-    data = torch.randn(5, 3)  # 100 samples, each of shape (3, 4, 4)
-    independent_dataset_dist = CouplingDataset(noise=noise_dist, data=data, independent_coupling=True)
-    independent_dataloader_dist = DataLoader(independent_dataset_dist, batch_size=2, drop_last=True)
-
-    print("\nTesting independent dataset with custom noise distribution:")
-    for X0, X1 in independent_dataloader_dist:
-        #assert X0.shape == X1.shape == (10, 3, 4, 4), "Independent samples should have the same shape"
-        print("Independent batch with noise from distribution:", X0.shape, X1.shape)
-
-# Run tests
-if __name__ == '__main__':
-    test_coupling_dataset()
