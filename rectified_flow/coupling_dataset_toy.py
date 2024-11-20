@@ -7,10 +7,10 @@ from functools import partial
 class CouplingDataset(Dataset):
     def __init__(
         self,
-        D1: Union[torch.Tensor, Distribution],
-        D0: Optional[Union[torch.Tensor, Distribution]] = None,
+        D1: torch.Tensor | Distribution,
+        D0: torch.Tensor | Distribution | None = None,
         reflow: bool = False,
-        condition: Optional[List[Dict]] = None,
+        condition: List[Dict] | List | None = None,
     ):
         """
         A simplified coupling dataset that provides coupled samples from D0 and D1.

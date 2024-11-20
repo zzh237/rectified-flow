@@ -19,16 +19,18 @@ def visualize_2d_trajectories(
     Parameters:
         trajectories_list (list): List of trajectories to display.
         num_trajectories (int): Number of trajectories to display.
-        markersize (int): Size of the markers.
+        markersize (int): Size of the markers. 
         dimensions (list): Indices of the dimensions to plot.
         alpha_trajectories (float): Transparency of trajectory lines.
         alpha_generated_points (float): Transparency of generated points.
         alpha_gt_points (float): Transparency of true points.
     """
     dim0, dim1 = dimensions
+    D1_gt_samples = D1_gt_samples.clone().cpu().detach().numpy() if D1_gt_samples is not None else None
     traj_list_flat = [traj.clone().detach().cpu().reshape(traj.shape[0], -1) for traj in trajectories_list]
 
     xtraj = torch.stack(traj_list_flat)
+    print("xtraj.shape", xtraj.shape)
 
     if D1_gt_samples is not None:
         plt.plot(D1_gt_samples[:, dim0], D1_gt_samples[:, dim1], '.', 
