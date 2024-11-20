@@ -184,7 +184,7 @@ class AffineInterp(nn.Module):
             name = 'DDIM'
         elif alpha is not None and beta is not None and dot_alpha is not None and dot_beta is not None:
             # Custom interpolation functions
-            pass
+            raise NotImplementedError("Custom interpolation functions are not yet supported.")
 
         self.name = name
         self.alpha = lambda t: alpha(self.ensure_tensor(t))
@@ -428,8 +428,8 @@ class RectifiedFlow:
     
     def get_loss(
         self,
-        X_0: torch.Tensor,
         X_1: torch.Tensor,
+        X_0: torch.Tensor | None = None,
         t: torch.Tensor | None = None,
         **kwargs,
     ):
@@ -437,22 +437,30 @@ class RectifiedFlow:
         Compute the loss of the flow model(X_t, t)
 
         Args:
-            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn)
             X_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
-            t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_dim_with_data
+            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn), optional
+            t (torch.Tensor): Time tensor, shape (B,), in [0, 1], optional
             **kwargs: Additional keyword arguments for the model input
 
         Returns:
             torch.Tensor: Loss tensor, scalar
         """
-        # NOTE: check input device and dtype
-        t = self.sample_time(X_0.shape[0]) if t is None else t
+        if X_1.device != self.device:
+            X_1 = X_1.to(self.device)
+            warnings.warn("X_1 moved to device of the model.")
+
+        if X_1.dtype != self.dtype:
+            X_1 = X_1.to(self.dtype)
+            warnings.warn("X_1 moved to dtype of the model.")
+
+        t = self.sample_time(X_1.shape[0]) if t is None else t
+        X_0 = self.sample_noise(X_1.shape[0]) if X_0 is None else X_0
+
         X_t, dot_Xt = self.get_interpolation(X_0, X_1, t)
         v_t = self.get_velocity(X_t, t, **kwargs)
         wts = self.train_time_weight(t)
-        # print(f"X_t shape: {X_t.shape}, dot_Xt shape: {dot_Xt.shape}, v_t shape: {v_t.shape}, wts shape: {wts.shape}")
-        loss = self.criterion(v_t, dot_Xt, X_t, t, wts)
-        return loss
+
+        return self.criterion(v_t, dot_Xt, X_t, t, wts)
 
     def get_score_function_from_velocity(self, Xt, vt, t):
         # pi_0 (noise distribution) must ~ Normal(0,I), Dlogpt(Xt) = -E[X0 | Xt] / bt
