@@ -33,6 +33,7 @@ class CouplingDataset(Dataset):
 
         # Determine modes for D1 and D0
         self.D1_mode = 'tensor' if isinstance(D1, torch.Tensor) else 'distribution'
+        
         if self.D0 is None and not self.reflow:
             self.D0 = self._set_default_noise()
             self.D0_mode = 'distribution'
@@ -113,7 +114,7 @@ class CouplingDataset(Dataset):
     default_length = 10000
 
 # Custom collate function
-def coupling_collate_fn(batch, D0_distribution=None):
+def coupling_collate_fn(batch, D0_distribution=None, D1_distribution=None):
     X0_list, X1_list, condition_list = zip(*batch)
     # Handle X0
     if all(x is None for x in X0_list) and D0_distribution is not None:
@@ -122,7 +123,11 @@ def coupling_collate_fn(batch, D0_distribution=None):
     else:
         X0_batch = torch.stack(X0_list)
     # Handle X1
-    X1_batch = torch.stack(X1_list)
+    if all(x is None for x in X1_list) and D1_distribution is not None:
+        batch_size = len(X1_list)
+        X1_batch = D1_distribution.sample([batch_size])
+    else:
+        X1_batch = torch.stack(X1_list)
     # Handle condition
     if condition_list[0] is not None:
         condition_batch = condition_list
