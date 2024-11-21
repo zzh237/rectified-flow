@@ -191,13 +191,14 @@ class PositionalEmbedding(torch.nn.Module):
         self.max_positions = max_positions
         self.endpoint = endpoint
 
-    def forward(self, x):
-        freqs = torch.arange(start=0, end=self.num_channels//2, dtype=torch.float32, device=x.device)
+    def forward(self, t, time_factor=1000.0):
+        t = t * time_factor
+        freqs = torch.arange(start=0, end=self.num_channels//2, dtype=torch.float32, device=t.device)
         freqs = freqs / (self.num_channels // 2 - (1 if self.endpoint else 0))
         freqs = (1 / self.max_positions) ** freqs
-        x = x.ger(freqs.to(x.dtype))
-        x = torch.cat([x.cos(), x.sin()], dim=1)
-        return x
+        t = t.ger(freqs.to(t.dtype))
+        t = torch.cat([t.cos(), t.sin()], dim=1)
+        return t
 
 #----------------------------------------------------------------------------
 # Timestep embedding used in the NCSN++ architecture.
@@ -227,7 +228,7 @@ class SongUNet(torch.nn.Module):
         augment_dim         = 0,            # Augmentation label dimensionality, 0 = no augmentation.
 
         model_channels      = 128,          # Base multiplier for the number of channels.
-        channel_mult        = [1,2,2,2],    # Per-resolution multipliers for the number of channels.
+        channel_mult        = [2,2,2],    # Per-resolution multipliers for the number of channels.
         channel_mult_emb    = 4,            # Multiplier for the dimensionality of the embedding vector.
         num_blocks          = 4,            # Number of residual blocks per resolution.
         attn_resolutions    = [16],         # List of resolutions with self-attention.
@@ -235,7 +236,7 @@ class SongUNet(torch.nn.Module):
         label_dropout       = 0,            # Dropout probability of class labels for classifier-free guidance.
 
         embedding_type      = 'positional', # Timestep embedding type: 'positional' for DDPM++, 'fourier' for NCSN++.
-        channel_mult_noise  = 1,            # Timestep embedding size: 1 for DDPM++, 2 for NCSN++.
+        channel_mult_time   = 1,            # Timestep embedding size: 1 for DDPM++, 2 for NCSN++.
         encoder_type        = 'standard',   # Encoder architecture: 'standard' for DDPM++, 'residual' for NCSN++.
         decoder_type        = 'standard',   # Decoder architecture: 'standard' for both DDPM++ and NCSN++.
         resample_filter     = [1,1],        # Resampling filter: [1,1] for DDPM++, [1,3,3,1] for NCSN++.
@@ -247,7 +248,7 @@ class SongUNet(torch.nn.Module):
         super().__init__()
         self.label_dropout = label_dropout
         emb_channels = model_channels * channel_mult_emb
-        noise_channels = model_channels * channel_mult_noise
+        time_channels = model_channels * channel_mult_time
         init = dict(init_mode='xavier_uniform')
         init_zero = dict(init_mode='xavier_uniform', init_weight=1e-5)
         init_attn = dict(init_mode='xavier_uniform', init_weight=np.sqrt(0.2))
@@ -258,10 +259,10 @@ class SongUNet(torch.nn.Module):
         )
 
         # Mapping.
-        self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) if embedding_type == 'positional' else FourierEmbedding(num_channels=noise_channels)
-        self.map_label = Linear(in_features=label_dim, out_features=noise_channels, **init) if label_dim else None
-        self.map_augment = Linear(in_features=augment_dim, out_features=noise_channels, bias=False, **init) if augment_dim else None
-        self.map_layer0 = Linear(in_features=noise_channels, out_features=emb_channels, **init)
+        self.map_time = PositionalEmbedding(num_channels=time_channels, endpoint=True) if embedding_type == 'positional' else FourierEmbedding(num_channels=time_channels)
+        self.map_label = Linear(in_features=label_dim, out_features=time_channels, **init) if label_dim else None
+        self.map_augment = Linear(in_features=augment_dim, out_features=time_channels, bias=False, **init) if augment_dim else None
+        self.map_layer0 = Linear(in_features=time_channels, out_features=emb_channels, **init)
         self.map_layer1 = Linear(in_features=emb_channels, out_features=emb_channels, **init)
 
         # Encoder.
@@ -309,9 +310,9 @@ class SongUNet(torch.nn.Module):
                 self.dec[f'{res}x{res}_aux_norm'] = GroupNorm(num_channels=cout, eps=1e-6)
                 self.dec[f'{res}x{res}_aux_conv'] = Conv2d(in_channels=cout, out_channels=out_channels, kernel=3, **init_zero)
 
-    def forward(self, x, noise_labels, class_labels, augment_labels=None):
+    def forward(self, x, time, class_labels=None, augment_labels=None):
         # Mapping.
-        emb = self.map_noise(noise_labels)
+        emb = self.map_time(time)
         emb = emb.reshape(emb.shape[0], 2, -1).flip(1).reshape(*emb.shape) # swap sin/cos
         if self.map_label is not None:
             tmp = class_labels

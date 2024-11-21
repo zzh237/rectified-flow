@@ -20,8 +20,10 @@ from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
 from typing import Any, Dict, List, Optional, Tuple, Union
 from dataclasses import dataclass, asdict
 
+
 def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+
 
 @dataclass
 class DiTConfig:
@@ -47,6 +49,7 @@ class TimestepEmbedder(nn.Module):
     """
     Embeds scalar timesteps into vector representations.
     """
+
     def __init__(self, hidden_size, frequency_embedding_size=256):
         super().__init__()
         self.mlp = nn.Sequential(
@@ -57,16 +60,17 @@ class TimestepEmbedder(nn.Module):
         self.frequency_embedding_size = frequency_embedding_size
 
     @staticmethod
-    def timestep_embedding(t, dim, max_period=10000):
+    def timestep_embedding(t, dim, max_period=10000, time_factor: float = 1000.0):
         """
         Create sinusoidal timestep embeddings.
-        :param t: a 1-D Tensor of N indices, one per batch element.
-                          These may be fractional.
+        :param t: a 1-D Tensor of N indices, one per batch element. 
+                  t range [0, 1] for recitified flow, scaled by time_factor for numerical stability
         :param dim: the dimension of the output.
         :param max_period: controls the minimum frequency of the embeddings.
         :return: an (N, D) Tensor of positional embeddings.
         """
         # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
+        t = t * time_factor
         half = dim // 2
         freqs = torch.exp(
             -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
@@ -87,6 +91,7 @@ class LabelEmbedder(nn.Module):
     """
     Embeds class labels into vector representations. Also handles label dropout for classifier-free guidance.
     """
+
     def __init__(self, num_classes, hidden_size, dropout_prob):
         super().__init__()
         use_cfg_embedding = dropout_prob > 0
@@ -121,6 +126,7 @@ class DiTBlock(nn.Module):
     """
     A DiT block with adaptive layer norm zero (adaLN-Zero) conditioning.
     """
+
     def __init__(self, hidden_size, num_heads, mlp_ratio=4.0, skip=False):
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
@@ -150,6 +156,7 @@ class FinalLayer(nn.Module):
     """
     The final layer of DiT.
     """
+
     def __init__(self, hidden_size, patch_size, out_channels):
         super().__init__()
         self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
@@ -173,8 +180,8 @@ class DiT(nn.Module):
     config_class = DiTConfig
 
     def __init__(
-        self,
-        config: DiTConfig,
+            self,
+            config: DiTConfig,
     ):
         super().__init__()
         self.config = config
@@ -183,9 +190,10 @@ class DiT(nn.Module):
         self.patch_size = config.patch_size
         self.num_heads = config.num_heads
 
-        self.x_embedder = PatchEmbed(config.input_size, config.patch_size, config.in_channels, config.hidden_size, bias=True)
+        self.x_embedder = PatchEmbed(config.input_size, config.patch_size, config.in_channels, config.hidden_size,
+                                     bias=True)
         self.t_embedder = TimestepEmbedder(config.hidden_size)
-        if config.num_classes > 0: # conditional generation
+        if config.num_classes > 0:  # conditional generation
             self.y_embedder = LabelEmbedder(config.num_classes, config.hidden_size, config.class_dropout_prob)
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
@@ -199,11 +207,13 @@ class DiT(nn.Module):
             hidden_size=config.hidden_size, num_heads=config.num_heads, mlp_ratio=config.mlp_ratio, skip=False)
 
         self.out_blocks = nn.ModuleList([
-            DiTBlock(hidden_size=config.hidden_size, num_heads=config.num_heads, mlp_ratio=config.mlp_ratio, skip=config.use_long_skip)
+            DiTBlock(hidden_size=config.hidden_size, num_heads=config.num_heads, mlp_ratio=config.mlp_ratio,
+                     skip=config.use_long_skip)
             for _ in range(config.depth // 2)])
 
         self.final_layer = FinalLayer(config.hidden_size, config.patch_size, self.out_channels)
-        self.final_conv = nn.Conv2d(config.out_channels, config.out_channels, 3, padding=1) if config.final_conv else nn.Identity()
+        self.final_conv = nn.Conv2d(config.out_channels, config.out_channels, 3,
+                                    padding=1) if config.final_conv else nn.Identity()
 
         self.initialize_weights()
 
@@ -214,6 +224,7 @@ class DiT(nn.Module):
                 torch.nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
+
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
@@ -296,37 +307,37 @@ class DiT(nn.Module):
         return imgs
 
     def forward(
-        self, 
-        x: torch.Tensor,
-        t: torch.Tensor,
-        y=None):
+            self,
+            x: torch.Tensor,
+            t: torch.Tensor,
+            y=None):
         """
         Forward pass of DiT.
         x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
         t: (N,) tensor of diffusion timesteps
         y: (N,) tensor of class labels
         """
-        x = self.x_embedder(x) + self.pos_embed      # (N, T, D), where T = H * W / patch_size ** 2
-        t = self.t_embedder(t)                       # (N, D)
+        x = self.x_embedder(x) + self.pos_embed  # (N, T, D), where T = H * W / patch_size ** 2
+        t = self.t_embedder(t)  # (N, D)
         if hasattr(self, 'y_embedder'):
-            y = self.y_embedder(y, self.training)    # (N, D)
-            c = t + y                                # (N, D)
+            y = self.y_embedder(y, self.training)  # (N, D)
+            c = t + y  # (N, D)
         else:
-            c = t    
+            c = t
 
         skips = []
         for idx, block in enumerate(self.in_blocks):
-            x = block(x, c)                      # (N, T, D)
+            x = block(x, c)  # (N, T, D)
             skips.append(x)
 
-        x = self.mid_block(x, c)                 # (N, T, D)
+        x = self.mid_block(x, c)  # (N, T, D)
 
         for block in self.out_blocks:
             x = block(x, c, x_skip=skips.pop())  # (N, T, D), with long skip connections
 
-        x = self.final_layer(x, c)               # (N, T, patch_size ** 2 * out_channels)
-        x = self.unpatchify(x)                   # (N, out_channels, H, W)
-        x = self.final_conv(x)                   # (N, out_channels, H, W)
+        x = self.final_layer(x, c)  # (N, T, patch_size ** 2 * out_channels)
+        x = self.unpatchify(x)  # (N, out_channels, H, W)
+        x = self.final_conv(x)  # (N, out_channels, H, W)
         return x
 
 
@@ -360,7 +371,7 @@ def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
     emb_h = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[0])  # (H*W, D/2)
     emb_w = get_1d_sincos_pos_embed_from_grid(embed_dim // 2, grid[1])  # (H*W, D/2)
 
-    emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, D)
+    emb = np.concatenate([emb_h, emb_w], axis=1)  # (H*W, D)
     return emb
 
 
@@ -373,13 +384,13 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     assert embed_dim % 2 == 0
     omega = np.arange(embed_dim // 2, dtype=np.float64)
     omega /= embed_dim / 2.
-    omega = 1. / 10000**omega  # (D/2,)
+    omega = 1. / 10000 ** omega  # (D/2,)
 
     pos = pos.reshape(-1)  # (M,)
     out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
 
-    emb_sin = np.sin(out) # (M, D/2)
-    emb_cos = np.cos(out) # (M, D/2)
+    emb_sin = np.sin(out)  # (M, D/2)
+    emb_cos = np.cos(out)  # (M, D/2)
 
     emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
     return emb
@@ -392,43 +403,54 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
 def DiT_XL_2(**kwargs):
     return DiT(depth=28, hidden_size=1152, patch_size=2, num_heads=16, **kwargs)
 
+
 def DiT_XL_4(**kwargs):
     return DiT(depth=28, hidden_size=1152, patch_size=4, num_heads=16, **kwargs)
+
 
 def DiT_XL_8(**kwargs):
     return DiT(depth=28, hidden_size=1152, patch_size=8, num_heads=16, **kwargs)
 
+
 def DiT_L_2(**kwargs):
     return DiT(depth=24, hidden_size=1024, patch_size=2, num_heads=16, **kwargs)
+
 
 def DiT_L_4(**kwargs):
     return DiT(depth=24, hidden_size=1024, patch_size=4, num_heads=16, **kwargs)
 
+
 def DiT_L_8(**kwargs):
     return DiT(depth=24, hidden_size=1024, patch_size=8, num_heads=16, **kwargs)
+
 
 def DiT_B_2(**kwargs):
     return DiT(depth=12, hidden_size=768, patch_size=2, num_heads=12, **kwargs)
 
+
 def DiT_B_4(**kwargs):
     return DiT(depth=12, hidden_size=768, patch_size=4, num_heads=12, **kwargs)
+
 
 def DiT_B_8(**kwargs):
     return DiT(depth=12, hidden_size=768, patch_size=8, num_heads=12, **kwargs)
 
+
 def DiT_S_2(**kwargs):
     return DiT(depth=12, hidden_size=384, patch_size=2, num_heads=6, **kwargs)
 
+
 def DiT_S_4(**kwargs):
     return DiT(depth=12, hidden_size=384, patch_size=4, num_heads=6, **kwargs)
+
 
 def DiT_S_8(**kwargs):
     return DiT(depth=12, hidden_size=384, patch_size=8, num_heads=6, **kwargs)
 
 
 DiT_models = {
-    'DiT-XL/2': DiT_XL_2,  'DiT-XL/4': DiT_XL_4,  'DiT-XL/8': DiT_XL_8,
-    'DiT-L/2':  DiT_L_2,   'DiT-L/4':  DiT_L_4,   'DiT-L/8':  DiT_L_8,
-    'DiT-B/2':  DiT_B_2,   'DiT-B/4':  DiT_B_4,   'DiT-B/8':  DiT_B_8,
-    'DiT-S/2':  DiT_S_2,   'DiT-S/4':  DiT_S_4,   'DiT-S/8':  DiT_S_8,
+    'DiT-XL/2': DiT_XL_2, 'DiT-XL/4': DiT_XL_4, 'DiT-XL/8': DiT_XL_8,
+    'DiT-L/2': DiT_L_2, 'DiT-L/4': DiT_L_4, 'DiT-L/8': DiT_L_8,
+    'DiT-B/2': DiT_B_2, 'DiT-B/4': DiT_B_4, 'DiT-B/8': DiT_B_8,
+    'DiT-S/2': DiT_S_2, 'DiT-S/4': DiT_S_4, 'DiT-S/8': DiT_S_8,
 }
