@@ -261,7 +261,7 @@ class DiT(nn.Module):
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
-    def save_pretrained(self, save_directory: str, filename: str = "dit_model"):
+    def save_pretrained(self, save_directory: str, filename: str = "dit"):
         os.makedirs(save_directory, exist_ok=True)
         config_path = os.path.join(save_directory, f"{filename}_config.json")
         config_dict = asdict(self.config)
@@ -271,12 +271,12 @@ class DiT(nn.Module):
 
         model_to_save = self.module if hasattr(self, 'module') else self
         state_dict = model_to_save.state_dict()
-        output_model_file = os.path.join(save_directory, f"{filename}_weights.pt")
+        output_model_file = os.path.join(save_directory, f"{filename}_model.pt")
         torch.save(state_dict, output_model_file)
         print(f"Model weights saved to {output_model_file}")
 
     @classmethod
-    def from_pretrained(cls, save_directory: str, filename: str = "dit_model"):
+    def from_pretrained(cls, save_directory: str, filename: str = "dit_model", use_ema: bool = False):
         config_path = os.path.join(save_directory, f"{filename}_config.json")
         with open(config_path, 'r', encoding='utf-8') as f:
             config_dict = json.load(f)
@@ -284,7 +284,8 @@ class DiT(nn.Module):
         config = cls.config_class(**config_dict)
         model = cls(config)
 
-        model_path = os.path.join(save_directory, f"{filename}_weights.pt")
+        if use_ema: model_path = os.path.join(save_directory, f"{filename}_model.pt")
+        else: model_path = os.path.join(save_directory, f"{filename}_ema.pt")
         state_dict = torch.load(model_path, map_location='cpu')
         model.load_state_dict(state_dict)
         print(f"Model loaded from {model_path}")
