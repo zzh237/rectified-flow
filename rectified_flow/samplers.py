@@ -10,37 +10,37 @@ from utils.utils import set_seed
 class Sampler:
     ODE_SAMPLING_STEP_LIMIT = 1000
 
-    def __init__( # NOTE: consider using dataclass config
-        self, 
+    def __init__(
+        self,
         rectified_flow: RectifiedFlow,
-        X_0: torch.Tensor | None = None, 
         num_steps: int | None = None,
         time_grid: list[float] | torch.Tensor | None = None,
         record_traj_period: int = 1,
-        num_samples: int = 100,
-        seed: int = 0, 
-        callbacks: list[callable] | None = None
+        seed: int = 0,
+        callbacks: list[callable] | None = None,
+        num_samples: int | None = None,
     ):
-        self.seed = seed 
-        set_seed(seed) 
+        self.seed = seed
+        set_seed(seed)
 
         self.rectified_flow = rectified_flow
-        self.num_samples = num_samples 
 
-        # prepare 
-        self.X_t = X_0 if X_0 is not None else self.rectified_flow.sample_source_distribution(num_samples)
-        self.X_0 = self.X_t.clone()
-        self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
+        # Prepare time grid
+        if num_steps is not None or time_grid is not None:
+            self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
+        else:
+            self.num_steps = None
+            self.time_grid = None
+
         self.callbacks = callbacks or []
-        self.record_traj_period = record_traj_period 
-        self.step_count = 0
-        self.time_iter = iter(self.time_grid)
-        self.t = next(self.time_iter)
-        self.t_next = next(self.time_iter)
+        self.record_traj_period = record_traj_period
 
-        # recording trajectories 
-        self._trajectories = [self.X_t.clone().cpu()]
-        self._time_points = [self.t]    
+        # Initialize sampling state
+        self.num_samples = num_samples
+        self.X_t = None
+        self.X_0 = None
+        self.step_count = 0
+
 
     def _prepare_time_grid(self, num_steps, time_grid):
         if num_steps is None and time_grid is None:
@@ -55,7 +55,7 @@ class Sampler:
                 time_grid = time_grid.tolist()
             elif not isinstance(time_grid, list):
                 time_grid = list(time_grid)
-            
+
             if num_steps is None:
                 num_steps = len(time_grid) - 1
             else:
@@ -63,7 +63,7 @@ class Sampler:
 
         return num_steps, time_grid
 
-    def get_velocity(self, **model_kwargs): 
+    def get_velocity(self, **model_kwargs):
         X_t, t = self.X_t, self.t
         t = match_dim_with_data(t, X_t.shape, X_t.device, X_t.dtype, expand_dim=False)
         return self.rectified_flow.get_velocity(X_t, t, **model_kwargs)
@@ -103,13 +103,58 @@ class Sampler:
                 callback(self)
 
     @torch.inference_mode()
-    def sample_loop(self, **model_kwargs):
-        # NOTE: consider support multiple times of sampling
-        """Runs the sampling process"""
+    def sample_loop(
+        self,
+        num_samples: int | None = None,
+        X_0: torch.Tensor | None = None,
+        seed: int | None = None,
+        num_steps: int | None = None,
+        time_grid: list[float] | torch.Tensor | None = None,
+        **model_kwargs,
+    ):
+        if seed is not None:
+            set_seed(seed)
+
+        if num_samples is None:
+            if X_0 is not None:
+                num_samples = X_0.shape[0]
+            elif self.num_samples is not None:
+                num_samples = self.num_samples
+            else:
+                raise ValueError(
+                    "num_samples must be specified if X_0 is not provided."
+                )
+        self.num_samples = num_samples
+
+        # Prepare initial state
+        if X_0 is not None:
+            self.X_t = X_0
+        else:
+            self.X_t = self.rectified_flow.sample_source_distribution(num_samples)
+        self.X_0 = self.X_t.clone()
+
+        # Prepare time grid, can be overridden when calling the method
+        if num_steps is not None:
+            self.num_steps = num_steps
+        if time_grid is not None:
+            self.time_grid = time_grid
+
+        self.num_steps, self.time_grid = self._prepare_time_grid(self.num_steps, self.time_grid)
+        self.step_count = 0
+        self.time_iter = iter(self.time_grid)
+        self.t = next(self.time_iter)
+        self.t_next = next(self.time_iter)
+
+        # Recording trajectories
+        self._trajectories = [self.X_t.clone().cpu()]
+        self._time_points = [self.t]
+
+        # Runs the sampling process
         while not self.stop():
             self.step(**model_kwargs)
             self.record()
             self.set_next_time_point()
+
         return self
 
     @property
