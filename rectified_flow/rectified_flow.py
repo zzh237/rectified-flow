@@ -270,6 +270,16 @@ class TrainTimeSampler:
     ):
         self.distribution = distribution
 
+    @staticmethod
+    def u_shaped_t(num_samples, alpha=4.0):
+        alpha = torch.tensor(alpha, dtype=torch.float32)
+        u = torch.rand(num_samples)
+        t = -torch.log(1 - u * (1 - torch.exp(-alpha))) / alpha  # inverse cdf = torch.log(u * (torch.exp(torch.tensor(a)) - 1) / a) / a
+        t = torch.cat([t, 1 - t], dim=0)
+        t = t[torch.randperm(t.shape[0])]
+        t = t[:num_samples]
+        return t
+
     @torch.no_grad()
     def __call__(
         self,
@@ -284,8 +294,12 @@ class TrainTimeSampler:
             torch.Tensor: Time tensor, shape (batch_size,)
         """
         if self.distribution == "uniform":
-            t = torch.rand((batch_size,), device=device, dtype=dtype)
-        else: # NOTE: will implement different time distributions
+            t = torch.rand((batch_size,)).to(device=device, dtype=dtype)
+        elif self.distribution == "lognormal":
+            t = torch.sigmoid(torch.randn((batch_size,))).to(device=device, dtype=dtype)
+        elif self.distribution == "u_shaped":
+            t = self.u_shaped_t(batch_size).to(device=device, dtype=dtype)
+        else:
             raise NotImplementedError(f"Time distribution '{self.dist}' is not implemented.")
         
         return t
@@ -340,7 +354,7 @@ class RectifiedFlow:
         data_shape: tuple,
         model: nn.Module,
         interp: AffineInterp | str = "straight",
-        prior_distribution: torch.distributions.Distribution | str = "normal",
+        source_distribution: torch.distributions.Distribution | str = "normal",
         is_independent_coupling: bool = True,
         train_time_distribution: TrainTimeSampler | str = "uniform",
         train_time_weight: TrainTimeWeights | str = "uniform",
@@ -369,7 +383,7 @@ class RectifiedFlow:
             criterion if isinstance(criterion, RFLossFunction) else RFLossFunction(criterion)
         )
         
-        self.pi_0 = prior_distribution if isinstance(prior_distribution, dist.Distribution) else dist.Normal(0, 1).expand(data_shape)
+        self.pi_0 = source_distribution if isinstance(source_distribution, dist.Distribution) else dist.Normal(0, 1).expand(data_shape)
         self.independent_coupling = is_independent_coupling
 
         self.device = device
@@ -379,7 +393,7 @@ class RectifiedFlow:
     def sample_time(self, batch_size: int):
         return self.time_sampler(batch_size, device=self.device, dtype=self.dtype)
 
-    def sample_noise(self, batch_size: int):
+    def sample_source_distribution(self, batch_size: int):
         return self.pi_0.sample((batch_size,)).to(self.device, self.dtype)
 
     def get_interpolation(
@@ -428,8 +442,8 @@ class RectifiedFlow:
     
     def get_loss(
         self,
+        X_0: torch.Tensor | None,
         X_1: torch.Tensor,
-        X_0: torch.Tensor | None = None,
         t: torch.Tensor | None = None,
         **kwargs,
     ):
@@ -437,8 +451,9 @@ class RectifiedFlow:
         Compute the loss of the flow model(X_t, t)
 
         Args:
+            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn), can be None
+                                Must be provided to avoid ambiguity in passing arguments
             X_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
-            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn), optional
             t (torch.Tensor): Time tensor, shape (B,), in [0, 1], optional
             **kwargs: Additional keyword arguments for the model input
 
@@ -454,7 +469,7 @@ class RectifiedFlow:
             warnings.warn("X_1 moved to dtype of the model.")
 
         t = self.sample_time(X_1.shape[0]) if t is None else t
-        X_0 = self.sample_noise(X_1.shape[0]) if X_0 is None else X_0
+        X_0 = self.sample_source_distribution(X_1.shape[0]) if X_0 is None else X_0
 
         X_t, dot_Xt = self.get_interpolation(X_0, X_1, t)
         v_t = self.get_velocity(X_t, t, **kwargs)
@@ -463,7 +478,7 @@ class RectifiedFlow:
         return self.criterion(v_t, dot_Xt, X_t, t, wts)
 
     def get_score_function_from_velocity(self, Xt, vt, t):
-        # pi_0 (noise distribution) must ~ Normal(0,I), Dlogpt(Xt) = -E[X0 | Xt] / bt
+        # pi_0 (source distribution) must ~ Normal(0,I), Dlogpt(Xt) = -E[X0 | Xt] / bt
         self.assert_canonical()
         self.interp.solve(t=t, xt=Xt, dot_xt=vt)
         dlogp = - self.interp.x0/self.interp.bt
