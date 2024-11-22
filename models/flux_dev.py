@@ -34,10 +34,10 @@ class FluxWrapper:
         self.pooled_prompt_embeds = None
         self.text_ids = None
 
-    def get_flux_velocity(
+    def __call__(
         self, 
         X_t: Tensor,
-        t: float,
+        t: torch.Tensor,
         prompt: str | None = None,
         guidance_scale: float = 3.5,
         prompt_embeds: torch.Tensor | None = None,
@@ -48,7 +48,7 @@ class FluxWrapper:
 
         Args:
             X_t: The packed latent variables at time t.
-            t (float): The time in your ODE, which will be converted to Flux's time (1 - t).
+            t: The time in RF ODE, which will be converted to Flux's time (1 - t).
             prompt (str, optional): The text prompt. Defaults to empty string.
             guidance_scale (float, optional): The guidance scale. Defaults to 0.0.
             prompt_embeds (Tensor, optional): Precomputed prompt embeddings. If provided,
@@ -67,13 +67,9 @@ class FluxWrapper:
             warnings.warn(f"X_t was casted to the dtype {self.dtype} of the FluxWrapper.")
 
         # Convert ODE time t to Flux time 1 - t
-        t_flux = 1.0 - t
-        t_vec = torch.full(
-            (X_t.shape[0],),
-            t_flux,
-            dtype=X_t.dtype,
-            device=X_t.device
-        )
+        t_vec = 1.0 - t 
+        assert isinstance(t_vec, torch.Tensor) and t_vec.ndim == 1 and t.shape[0] == X_t.shape[0], \
+            "Time vector must be a 1D tensor with the same length as the batch size."
 
         # Prepare guidance vector
         guidance_vec = torch.full(
@@ -144,17 +140,18 @@ def _pack_latents(latents, batch_size, num_channels_latents, height, width):
 
 
 def _prepare_latent_image_ids(batch_size, height, width, device, dtype):
-        latent_image_ids = torch.zeros(height // 2, width // 2, 3)
-        latent_image_ids[..., 1] = latent_image_ids[..., 1] + torch.arange(height // 2)[:, None]
-        latent_image_ids[..., 2] = latent_image_ids[..., 2] + torch.arange(width // 2)[None, :]
+    latent_image_ids = torch.zeros(height // 2, width // 2, 3)
+    latent_image_ids[..., 1] = latent_image_ids[..., 1] + torch.arange(height // 2)[:, None]
+    latent_image_ids[..., 2] = latent_image_ids[..., 2] + torch.arange(width // 2)[None, :]
 
-        latent_image_id_height, latent_image_id_width, latent_image_id_channels = latent_image_ids.shape
+    latent_image_id_height, latent_image_id_width, latent_image_id_channels = latent_image_ids.shape
 
-        latent_image_ids = latent_image_ids.reshape(
-            latent_image_id_height * latent_image_id_width, latent_image_id_channels
-        )
+    latent_image_ids = latent_image_ids[None, :].repeat(batch_size, 1, 1, 1)
+    latent_image_ids = latent_image_ids.reshape(
+        batch_size, latent_image_id_height * latent_image_id_width, latent_image_id_channels
+    )
 
-        return latent_image_ids.to(device=device, dtype=dtype)
+    return latent_image_ids.to(device=device, dtype=dtype)
 
 
 def get_time_grid(
@@ -202,18 +199,46 @@ def prepare_packed_latents(
     # VAE latent channels = 16, VAE latent resolution = resolution // 8
     # shape [num_samples, 16, resolution // 8, resolution // 8]
     shape = (batch_size, 16, height, width)
+    print("VAE compressed shape = ", shape)
 
     if latents is not None:
         # num of tokens = (resolution // 8 * resolution // 8) / 4
         # shape [num_samples, (resolution // 8 * resolution // 8) / 4,  3]
-        latent_image_ids = _prepare_latent_image_ids(batch_size, height // 2, width // 2, device, dtype)
+        latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, device, dtype)
         return latents.to(device=device, dtype=dtype), latent_image_ids
 
     latents = torch.randn(shape, generator=generator, device=device, dtype=dtype)
 
     # After packing, shape [num_samples, (resolution // 16 * resolution // 16), 16 * 2 * 2]
     latents = _pack_latents(latents, batch_size, 16, height, width)
+    print("Packed latents shape = ", latents.shape)
 
-    latent_image_ids = _prepare_latent_image_ids(batch_size, height // 2, width // 2, device, dtype)
+    latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, device, dtype)
+    print("Latent image ids shape = ", latent_image_ids.shape)
 
     return latents, latent_image_ids
+
+
+def _unpack_latents(latents, height, width, vae_scale_factor):
+    batch_size, num_patches, channels = latents.shape
+
+    height = height // vae_scale_factor
+    width = width // vae_scale_factor
+
+    latents = latents.view(batch_size, height, width, channels // 4, 2, 2)
+    latents = latents.permute(0, 3, 1, 4, 2, 5)
+
+    latents = latents.reshape(batch_size, channels // (2 * 2), height * 2, width * 2)
+
+    return latents
+
+
+def unpack_and_decode(
+    pipeline,
+    packed_latents: Tensor, 
+    height: int,
+    width: int,  
+):
+    latents = _unpack_latents(packed_latents, height, width, pipeline.vae_scale_factor)
+    imgs = decode_imgs(latents, pipeline)[0]
+    return imgs

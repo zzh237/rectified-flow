@@ -26,7 +26,12 @@ class Sampler:
         self.rectified_flow = rectified_flow
 
         # Prepare time grid
-        self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
+        if num_steps is not None or time_grid is not None:
+            self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
+        else:
+            self.num_steps = None
+            self.time_grid = None
+
         self.callbacks = callbacks or []
         self.record_traj_period = record_traj_period
 
