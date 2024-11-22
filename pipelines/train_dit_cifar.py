@@ -515,7 +515,11 @@ def main(args):
                 X_0 = torch.randn_like(X_1)
                 t = rf_func.sample_time(X_1.shape[0])
 
-                loss = rf_func.get_loss(X_0, X_1, t)
+                loss = rf_func.get_loss(
+                    X_0=X_0, 
+                    X_1=X_1, 
+                    t=t,
+                )
 
                 accelerator.backward(loss)
 
@@ -552,7 +556,7 @@ def main(args):
                         logger.info(f"Saved state to {save_path}")
 
                         if args.use_ema:
-                            model_ema.save_pretrained(save_path, filename="dit_ema")
+                            model_ema.save_pretrained(save_path, filename="dit")
                             logger.info(f"Saved EMA model to {save_path}")
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}

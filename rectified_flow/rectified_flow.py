@@ -442,8 +442,8 @@ class RectifiedFlow:
     
     def get_loss(
         self,
+        X_0: torch.Tensor | None,
         X_1: torch.Tensor,
-        X_0: torch.Tensor | None = None,
         t: torch.Tensor | None = None,
         **kwargs,
     ):
@@ -451,8 +451,9 @@ class RectifiedFlow:
         Compute the loss of the flow model(X_t, t)
 
         Args:
+            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn), can be None
+                                Must be provided to avoid ambiguity in passing arguments
             X_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
-            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn), optional
             t (torch.Tensor): Time tensor, shape (B,), in [0, 1], optional
             **kwargs: Additional keyword arguments for the model input
 

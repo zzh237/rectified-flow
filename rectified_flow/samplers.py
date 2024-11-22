@@ -28,7 +28,7 @@ class Sampler:
         self.num_samples = num_samples 
 
         # prepare 
-        self.X_t = X_0 if X_0 is not None else self.rectified_flow.sample_noise(num_samples)
+        self.X_t = X_0 if X_0 is not None else self.rectified_flow.sample_source_distribution(num_samples)
         self.X_0 = self.X_t.clone()
         self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
         self.callbacks = callbacks or []
@@ -162,7 +162,7 @@ class NoiseRefreshSampler(Sampler):
         X_0_pred = self.rectified_flow.interp.x0
 
         # Randomize x0_pred by replacing part of it with new noise
-        noise = self.rectified_flow.sample_noise(self.num_samples)
+        noise = self.rectified_flow.sample_source_distribution(self.num_samples)
         noise_replacement_factor = self.noise_replacement_rate(t)
         X_0_pred_refreshed = (
             (1 - noise_replacement_factor**2)**0.5 * X_0_pred +
@@ -214,7 +214,7 @@ class OverShootingSampler(Sampler):
         # Apply noise to step back to t_next
         at = alpha(t_next) / alpha(t_overshoot)
         bt = (beta(t_next)**2 - (at * beta(t_overshoot))**2)**0.5
-        noise = self.rectified_flow.sample_noise(self.num_samples)
+        noise = self.rectified_flow.sample_source_distribution(self.num_samples)
         self.X_t = X_t_overshoot * at + noise * bt
         
 
@@ -252,5 +252,5 @@ class SDESampler(Sampler):
 
         # Predict x1 and update xt with noise
         X_1_pred = X_t + (1 - t) * v_t
-        noise = self.rectified_flow.sample_noise(self.num_samples)
+        noise = self.rectified_flow.sample_source_distribution(self.num_samples)
         self.X_t = X_t + step_size * v_adj_t + sigma_t * step_size**0.5 * noise

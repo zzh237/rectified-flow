@@ -1,6 +1,7 @@
 import torch
 import random
 import numpy as np
+import torchvision
 import matplotlib.pyplot as plt
 
 def visualize_2d_trajectories(
@@ -61,3 +62,12 @@ def set_seed(seed: int):
         torch.cuda.manual_seed_all(seed) 
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
+def plot_cifar_results(images, nrow=10):
+    images = (images.cpu().detach().clone() * 0.5 + 0.5).clamp(0, 1)
+    grid = torchvision.utils.make_grid(images, nrow=nrow, padding=1, normalize=False)
+    plt.figure(figsize=(10, (images.size(0) // nrow + 1) * 1.), dpi=300)
+    np_grid = grid.permute(1, 2, 0).numpy()
+    plt.imshow(np_grid)
+    plt.axis('off')
+    plt.show()

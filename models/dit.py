@@ -284,8 +284,8 @@ class DiT(nn.Module):
         config = cls.config_class(**config_dict)
         model = cls(config)
 
-        if use_ema: model_path = os.path.join(save_directory, f"{filename}_model.pt")
-        else: model_path = os.path.join(save_directory, f"{filename}_ema.pt")
+        if use_ema: model_path = os.path.join(save_directory, f"{filename}_ema.pt")
+        else: model_path = os.path.join(save_directory, f"{filename}_model.pt")
         state_dict = torch.load(model_path, map_location='cpu')
         model.load_state_dict(state_dict)
         print(f"Model loaded from {model_path}")

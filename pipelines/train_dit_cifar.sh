@@ -5,7 +5,7 @@ accelerate launch -m pipelines.train_dit_cifar \
   --resolution=32 \
   --train_batch_size=128 \
   --max_train_steps=500000 \
-  --checkpointing_steps=100 \
+  --checkpointing_steps=20_000 \
   --learning_rate=1e-4 \
   --lr_scheduler="constant_with_warmup" \
   --lr_warmup_steps=1000 \
