@@ -172,13 +172,20 @@ class EulerSampler(Sampler):
     def step(self, **model_kwargs):
         t, t_next, X_t = self.t, self.t_next, self.X_t
         v_t = self.get_velocity(**model_kwargs)
+        dtype = X_t.dtype
+        X_t = X_t.to(torch.float32)
+        v_t = v_t.to(torch.float32)
         self.X_t = X_t + (t_next - t) * v_t
+        self.X_t = self.X_t.to(dtype)
 
 
 class CurvedEulerSampler(Sampler):
     def step(self, **model_kwargs):
         t, t_next, X_t = self.t, self.t_next, self.X_t
         v_t = self.get_velocity(**model_kwargs)
+        dtype = v_t.dtype
+        X_t = X_t.to(torch.float32)
+        v_t = v_t.to(torch.float32)
 
         self.rectified_flow.interp.solve(t, xt=X_t, dot_xt=v_t)
         X_1_pred = self.rectified_flow.interp.x1
@@ -187,6 +194,7 @@ class CurvedEulerSampler(Sampler):
         # interplate to find x_{t_next}
         self.rectified_flow.interp.solve(t_next, x0=X_0_pred, x1=X_1_pred)
         self.X_t = self.rectified_flow.interp.xt
+        self.X_t = self.X_t.to(dtype)
 
 
 class NoiseRefreshSampler(Sampler):
@@ -200,6 +208,9 @@ class NoiseRefreshSampler(Sampler):
         """Perform a single step of the sampling process."""
         t, t_next, X_t = self.t, self.t_next, self.X_t
         v_t = self.get_velocity(**model_kwargs)
+        dtype = v_t.dtype
+        X_t = X_t.to(torch.float32)
+        v_t = v_t.to(torch.float32)
 
         # Given xt and dot_xt = vt, find the corresponding endpoints x0 and x1
         self.rectified_flow.interp.solve(t, xt=X_t, dot_xt=v_t)
@@ -208,6 +219,8 @@ class NoiseRefreshSampler(Sampler):
 
         # Randomize x0_pred by replacing part of it with new noise
         noise = self.rectified_flow.sample_source_distribution(self.num_samples)
+        noise = noise.to(torch.float32)
+
         noise_replacement_factor = self.noise_replacement_rate(t)
         X_0_pred_refreshed = (
             (1 - noise_replacement_factor**2)**0.5 * X_0_pred +
@@ -217,6 +230,7 @@ class NoiseRefreshSampler(Sampler):
         # Interpolate to find xt at t_next
         self.rectified_flow.interp.solve(t_next, x0=X_0_pred_refreshed, x1=X_1_pred)
         self.X_t = self.rectified_flow.interp.xt
+        self.X_t = self.X_t.to(dtype)
 
 
 class OverShootingSampler(Sampler):
@@ -245,6 +259,10 @@ class OverShootingSampler(Sampler):
         """Perform a single overshooting step."""
         t, t_next, X_t = self.t, self.t_next, self.X_t
         v_t = self.get_velocity(**model_kwargs)
+        dtype = v_t.dtype
+        X_t = X_t.to(torch.float32)
+        v_t = v_t.to(torch.float32)
+
         alpha = self.rectified_flow.interp.alpha
         beta = self.rectified_flow.interp.beta
 
@@ -260,7 +278,10 @@ class OverShootingSampler(Sampler):
         at = alpha(t_next) / alpha(t_overshoot)
         bt = (beta(t_next)**2 - (at * beta(t_overshoot))**2)**0.5
         noise = self.rectified_flow.sample_source_distribution(self.num_samples)
+        noise = noise.to(torch.float32)
+
         self.X_t = X_t_overshoot * at + noise * bt
+        self.X_t = self.X_t.to(dtype)
         
 
 class SDESampler(Sampler):

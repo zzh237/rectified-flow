@@ -55,7 +55,7 @@ class FluxWrapper:
         # VAE latent channels = 16, VAE latent resolution = resolution // 8
         # shape [num_samples, 16, resolution // 8, resolution // 8]
         shape = (batch_size, 16, height, width)
-        print("VAE compressed shape = ", shape)
+        # print("VAE compressed shape = ", shape)
 
         # num of tokens = (resolution // 8 * resolution // 8) / 4
         # shape [num_samples, (resolution // 8 * resolution // 8) / 4,  3]
@@ -70,11 +70,11 @@ class FluxWrapper:
         # After packing, shape [num_samples, (resolution // 16 * resolution // 16), 16 * 2 * 2]
         packed_latents = _pack_latents(vae_latents, batch_size, 16, height, width)
         self.image_seq_len = packed_latents.shape[1]
-        print("Packed latents shape = ", packed_latents.shape)
+        # print("Packed latents shape = ", packed_latents.shape)
 
         latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, self.device, self.dtype)
         self.latent_image_ids = latent_image_ids
-        print("Latent image ids shape = ", latent_image_ids.shape)
+        # print("Latent image ids shape = ", latent_image_ids.shape)
 
         return packed_latents
     
