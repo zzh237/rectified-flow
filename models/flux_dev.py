@@ -10,7 +10,8 @@ class FluxWrapper:
     def __init__(
         self, 
         pipeline: FluxPipeline,
-        latent_image_ids: Tensor,
+        height: int,
+        width: int,
         dtype: torch.dtype,
         device: torch.device,
     ):
@@ -24,9 +25,15 @@ class FluxWrapper:
             device: The device on which computations are performed.
         """
         self.pipeline = pipeline
+
+        if height % 16 != 0 or width % 16 != 0:
+            height = 16 * (height // 16)
+            width = 16 * (width // 16)
+            warnings.warn(f"Height and width must be divisible by 16. Adjusted to {height}x{width}.")
+        self.height, self.width = height, width
+
         self.dtype = dtype
         self.device = device
-        self.latent_image_ids = latent_image_ids
 
         # Initialize cache for prompt embeddings
         self.cached_prompt = None
@@ -34,6 +41,57 @@ class FluxWrapper:
         self.pooled_prompt_embeds = None
         self.text_ids = None
 
+    def prepare_packed_latents(
+        self,
+        batch_size: int,
+        generator: torch.Generator | None = None,
+        vae_latents: torch.Tensor | None = None,
+    ):
+        # VAE applies 8x compression on images but we must also account for packing which requires
+        # latent height and width to be divisible by 2.
+        height = self.height // 8
+        width = self.width // 8
+
+        # VAE latent channels = 16, VAE latent resolution = resolution // 8
+        # shape [num_samples, 16, resolution // 8, resolution // 8]
+        shape = (batch_size, 16, height, width)
+        print("VAE compressed shape = ", shape)
+
+        # num of tokens = (resolution // 8 * resolution // 8) / 4
+        # shape [num_samples, (resolution // 8 * resolution // 8) / 4,  3]
+        if vae_latents is not None:
+            assert vae_latents.shape[0] == batch_size, "Batch size must match the number of samples."
+            assert vae_latents.shape[1] == shape[1], "Number of channels must match the VAE latent channels."
+            assert vae_latents.shape[2] == shape[2], "Height must match the VAE latent height."
+            assert vae_latents.shape[3] == shape[3], "Width must match the VAE latent width."
+        else:
+            vae_latents = torch.randn(shape, generator=generator, device=self.device, dtype=self.dtype)
+
+        # After packing, shape [num_samples, (resolution // 16 * resolution // 16), 16 * 2 * 2]
+        packed_latents = _pack_latents(vae_latents, batch_size, 16, height, width)
+        self.image_seq_len = packed_latents.shape[1]
+        print("Packed latents shape = ", packed_latents.shape)
+
+        latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, self.device, self.dtype)
+        self.latent_image_ids = latent_image_ids
+        print("Latent image ids shape = ", latent_image_ids.shape)
+
+        return packed_latents
+    
+    def prepare_time_grid(
+        self,
+        num_steps: int,
+        shift: bool = True,
+    ):
+        time_grid = get_timesteps_flux(
+            num_steps=num_steps,
+            image_seq_len=self.image_seq_len,
+            shift=shift,
+        )
+        time_grid = [1.0 - t for t in time_grid]
+        
+        return time_grid
+    
     def __call__(
         self, 
         X_t: Tensor,
@@ -154,7 +212,7 @@ def _prepare_latent_image_ids(batch_size, height, width, device, dtype):
     return latent_image_ids.to(device=device, dtype=dtype)
 
 
-def get_time_grid(
+def get_timesteps_flux(
     num_steps: int,
     image_seq_len: int,
     base_shift: float = 0.5,
@@ -180,43 +238,6 @@ def get_time_grid(
         timesteps = time_shift(mu, 1.0, timesteps)
 
     return timesteps.tolist()
-
-
-def prepare_packed_latents(
-    batch_size,
-    height,
-    width,
-    dtype,
-    device,
-    generator=None,
-    latents=None,
-):
-    # VAE applies 8x compression on images but we must also account for packing which requires
-    # latent height and width to be divisible by 2.
-    height = 2 * (int(height) // (8 * 2))
-    width = 2 * (int(width) // (8 * 2))
-
-    # VAE latent channels = 16, VAE latent resolution = resolution // 8
-    # shape [num_samples, 16, resolution // 8, resolution // 8]
-    shape = (batch_size, 16, height, width)
-    print("VAE compressed shape = ", shape)
-
-    if latents is not None:
-        # num of tokens = (resolution // 8 * resolution // 8) / 4
-        # shape [num_samples, (resolution // 8 * resolution // 8) / 4,  3]
-        latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, device, dtype)
-        return latents.to(device=device, dtype=dtype), latent_image_ids
-
-    latents = torch.randn(shape, generator=generator, device=device, dtype=dtype)
-
-    # After packing, shape [num_samples, (resolution // 16 * resolution // 16), 16 * 2 * 2]
-    latents = _pack_latents(latents, batch_size, 16, height, width)
-    print("Packed latents shape = ", latents.shape)
-
-    latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, device, dtype)
-    print("Latent image ids shape = ", latent_image_ids.shape)
-
-    return latents, latent_image_ids
 
 
 def _unpack_latents(latents, height, width, vae_scale_factor):
