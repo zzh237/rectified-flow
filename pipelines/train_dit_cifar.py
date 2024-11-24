@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 
 
 class EMAModel:
-    def __init__(self, model, decay=0.9999):
+    def __init__(self, model, decay=0.9999, ema_hist=None):
         self.model = model
         self.decay = decay
         self.shadow = {k: v.clone().detach() for k, v in model.state_dict().items()}
@@ -43,10 +43,26 @@ class EMAModel:
                 print(f"Warning: EMA shadow does not contain parameter {name}")
 
     def save_pretrained(self, save_directory: str, filename: str = "dit"):
-        state_dict = self.shadow
+        state_dict_cpu = {k: v.cpu() for k, v in self.shadow.items()}
         output_model_file = os.path.join(save_directory, f"{filename}_ema.pt")
-        torch.save(state_dict, output_model_file)
+        torch.save(state_dict_cpu, output_model_file)
         print(f"Model weights saved to {output_model_file}")
+
+    def load_pretrained(self, save_directory: str, filename: str = "dit"):
+        output_model_file = os.path.join(save_directory, f"{filename}_ema.pt")
+        if os.path.exists(output_model_file):
+            state_dict = torch.load(output_model_file, map_location='cpu')
+            mapped_state_dict = {}
+            for name, param in state_dict.items():
+                if name in self.model.state_dict():
+                    model_param = self.model.state_dict()[name]
+                    mapped_state_dict[name] = param.to(device=model_param.device, dtype=model_param.dtype)
+                else:
+                    print(f"Warning: {name} not found in model's state_dict.")
+            self.shadow = mapped_state_dict
+            print(f"EMA weights loaded from {output_model_file} and mapped to model's device and dtype.")
+        else:
+            print(f"No EMA weights found at {output_model_file}")
 
     def apply_shadow(self):
         for name, param in self.model.named_parameters():
@@ -404,7 +420,7 @@ def main(args):
             for i, model in enumerate(models):
                 if isinstance(accelerator.unwrap_model(model), DiT):
                     unwrap_model = accelerator.unwrap_model(model)
-                    unwrap_model.save_pretrained(output_dir, filename=f"dit")
+                    unwrap_model.save_pretrained(output_dir, filename="dit")
                 else:
                     raise ValueError(f"Wrong model supplied: {type(model)=}.")
 
@@ -416,7 +432,7 @@ def main(args):
             print(type(model)) 
 
             if isinstance(accelerator.unwrap_model(model), DiT):
-                load_model = DiT.from_pretrained(input_dir, filename=f"dit")
+                load_model = DiT.from_pretrained(input_dir, filename="dit")
                 model.load_state_dict(load_model.state_dict())
             else:
                 raise ValueError(f"Wrong model supplied: {type(model)=}.")
@@ -442,7 +458,6 @@ def main(args):
         model = model,
         device = accelerator.device,
         dtype = weight_dtype,
-        seed = args.seed,
     )
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
@@ -466,12 +481,14 @@ def main(args):
     logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
+    global_step = 0
+    first_epoch = 0
 
     if args.resume_from_checkpoint:
         if args.resume_from_checkpoint != "latest":
             path = os.path.basename(args.resume_from_checkpoint)
         else:
-            # Get the mos recent checkpoint
+            # Get the most recent checkpoint
             dirs = os.listdir(args.output_dir)
             dirs = [d for d in dirs if d.startswith("checkpoint")]
             dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
@@ -492,10 +509,6 @@ def main(args):
             first_epoch = global_step // num_update_steps_per_epoch
     else:
         initial_global_step = 0
-
-    global_step = 0
-    first_epoch = 0
-    initial_global_step = global_step
 
     progress_bar = tqdm(
         range(0, args.max_train_steps),
