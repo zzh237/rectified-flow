@@ -354,14 +354,13 @@ class RectifiedFlow:
         data_shape: tuple,
         model: nn.Module,
         interp: AffineInterp | str = "straight",
-        source_distribution: torch.distributions.Distribution | str = "normal",
+        source_distribution: torch.distributions.Distribution | str = "normal" | Callable,
         is_independent_coupling: bool = True,
         train_time_distribution: TrainTimeSampler | str = "uniform",
         train_time_weight: TrainTimeWeights | str = "uniform",
         criterion: RFLossFunction | str = "mse",
         device: torch.device = torch.device("cpu"),
         dtype: torch.dtype = torch.float32,
-        seed: int = 0,
     ):
         self.data_shape = data_shape
         self.model = model 
@@ -369,7 +368,7 @@ class RectifiedFlow:
         self.interp: AffineInterp = (
             interp if isinstance(interp, AffineInterp) else AffineInterp(interp)
         )
-        self.time_sampler: TrainTimeSampler = (
+        self.train_time_sampler: TrainTimeSampler = (
             train_time_distribution
             if isinstance(train_time_distribution, TrainTimeSampler)
             else TrainTimeSampler(train_time_distribution)
@@ -388,13 +387,17 @@ class RectifiedFlow:
 
         self.device = device
         self.dtype = dtype
-        self.seed = seed
 
-    def sample_time(self, batch_size: int):
-        return self.time_sampler(batch_size, device=self.device, dtype=self.dtype)
+    def sample_train_time(self, batch_size: int):
+        return self.train_time_sampler(batch_size, device=self.device, dtype=self.dtype)
 
     def sample_source_distribution(self, batch_size: int):
-        return self.pi_0.sample((batch_size,)).to(self.device, self.dtype)
+        if isinstance(self.pi_0, dist.Distribution):
+            return self.pi_0.sample((batch_size,)).to(self.device, self.dtype)
+        elif callable(self.pi_0):
+            return self.pi_0(batch_size).to(self.device, self.dtype)
+        else:
+            raise ValueError("Source distribution must be a torch.distributions.Distribution or a callable.")
 
     def get_interpolation(
         self,
@@ -468,7 +471,7 @@ class RectifiedFlow:
             X_1 = X_1.to(self.dtype)
             warnings.warn("X_1 moved to dtype of the model.")
 
-        t = self.sample_time(X_1.shape[0]) if t is None else t
+        t = self.sample_train_time(X_1.shape[0]) if t is None else t
         X_0 = self.sample_source_distribution(X_1.shape[0]) if X_0 is None else X_0
 
         X_t, dot_Xt = self.get_interpolation(X_0, X_1, t)

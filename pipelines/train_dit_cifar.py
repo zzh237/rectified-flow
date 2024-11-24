@@ -513,7 +513,7 @@ def main(args):
             with accelerator.accumulate(models_to_accumulate):
                 X_1, _ = batch
                 X_0 = torch.randn_like(X_1)
-                t = rf_func.sample_time(X_1.shape[0])
+                t = rf_func.sample_train_time(X_1.shape[0])
 
                 loss = rf_func.get_loss(
                     X_0=X_0, 
