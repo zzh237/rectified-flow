@@ -33,6 +33,7 @@ class FluxWrapper:
             warnings.warn(f"Height and width must be divisible by 16. Adjusted to {height}x{width}.")
         self.height, self.width = height, width
         self.data_shape = (16, height // 8, width // 8)
+        self.image_seq_len = (height // 16) * (width // 16)
 
         self.generator = torch.Generator(device=device).manual_seed(seed)
 
@@ -72,7 +73,6 @@ class FluxWrapper:
 
         # After packing, shape [num_samples, (resolution // 16 * resolution // 16), 16 * 2 * 2]
         packed_latents = _pack_latents(vae_latents, batch_size, 16, height, width)
-        self.image_seq_len = packed_latents.shape[1]
         # print("Packed latents shape = ", packed_latents.shape)
 
         latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, self.device, self.dtype)

@@ -382,7 +382,9 @@ class RectifiedFlow:
             criterion if isinstance(criterion, RFLossFunction) else RFLossFunction(criterion)
         )
         
-        self.pi_0 = source_distribution if isinstance(source_distribution, dist.Distribution) else dist.Normal(0, 1).expand(data_shape)
+        self.pi_0 = source_distribution
+        if self.pi_0 == "normal": self.pi_0 = dist.Normal(0, 1).expand(data_shape)
+
         self.independent_coupling = is_independent_coupling
 
         self.device = device
@@ -518,6 +520,8 @@ class RectifiedFlow:
 
     def is_pi0_zero_mean_gaussian(self):
         """Check if pi0 is a zero-mean Gaussian distribution."""
+        if callable(self.pi_0): return True # NOTE: fix this
+
         is_multivariate_normal = (
             isinstance(self.pi_0, dist.MultivariateNormal) and 
             torch.allclose(self.pi_0.mean, torch.zeros_like(self.pi_0.mean))
