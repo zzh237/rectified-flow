@@ -6,11 +6,17 @@
 # work. If not, see http://creativecommons.org/licenses/by-nc-sa/4.0/
 
 """Model architectures and preconditioning schemes used in the paper
-"Elucidating the Design Space of Diffusion-Based Generative Models"."""
+"Elucidating the Design Space of Diffusion-Based Generative Models".
+Copied from https://github.com/NVlabs/edm/blob/main/training/networks.py
+"""
 
 import numpy as np
 import torch
+import os
+import json
+
 from torch.nn.functional import silu
+from dataclasses import dataclass, asdict
 
 #----------------------------------------------------------------------------
 # Unified routine for initializing weights and biases.
@@ -310,6 +316,38 @@ class SongUNet(torch.nn.Module):
                 self.dec[f'{res}x{res}_aux_norm'] = GroupNorm(num_channels=cout, eps=1e-6)
                 self.dec[f'{res}x{res}_aux_conv'] = Conv2d(in_channels=cout, out_channels=out_channels, kernel=3, **init_zero)
 
+    def save_pretrained(self, save_directory: str, filename: str = "dit"):
+        os.makedirs(save_directory, exist_ok=True)
+        config_path = os.path.join(save_directory, f"{filename}_config.json")
+        config_dict = asdict(self.config)
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config_dict, f, ensure_ascii=False, indent=4)
+        print(f"Configuration saved to {config_path}")
+
+        model_to_save = self.module if hasattr(self, 'module') else self
+        state_dict = model_to_save.state_dict()
+        state_dict_cpu = {k: v.cpu() for k, v in state_dict.items()}
+        output_model_file = os.path.join(save_directory, f"{filename}_model.pt")
+        torch.save(state_dict_cpu, output_model_file)
+        print(f"Model weights saved to {output_model_file}")
+
+    @classmethod
+    def from_pretrained(cls, save_directory: str, filename: str = "dit_model", use_ema: bool = False):
+        config_path = os.path.join(save_directory, f"{filename}_config.json")
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_dict = json.load(f)
+
+        config = cls.config_class(**config_dict)
+        model = cls(config)
+
+        if use_ema: model_path = os.path.join(save_directory, f"{filename}_ema.pt")
+        else: model_path = os.path.join(save_directory, f"{filename}_model.pt")
+        state_dict = torch.load(model_path, map_location='cpu')
+        model.load_state_dict(state_dict)
+        print(f"Model loaded from {model_path}")
+
+        return model
+    
     def forward(self, x, time, class_labels=None, augment_labels=None):
         # Mapping.
         emb = self.map_time(time)
