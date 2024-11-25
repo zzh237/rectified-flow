@@ -21,7 +21,7 @@ from diffusers.optimization import get_scheduler
 from torchvision import transforms
 from tqdm.auto import tqdm
 
-from models.dit import DiT, DiTConfig
+from rectified_flow.models.dit import DiT, DiTConfig
 from rectified_flow.rectified_flow import RectifiedFlow
 
 logger = get_logger(__name__)
@@ -351,7 +351,7 @@ def main(args):
         mlp_ratio = 4,
         num_classes = 0,
         use_long_skip = True,
-        final_conv = True,
+        final_conv = False,
     )
     model = DiT(DiT_teacher_config)
     

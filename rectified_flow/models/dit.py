@@ -8,6 +8,7 @@
 # GLIDE: https://github.com/openai/glide-text2im
 # MAE: https://github.com/facebookresearch/mae/blob/main/models_mae.py
 # --------------------------------------------------------
+# Copied from: https://github.com/facebookresearch/DiT/blob/main/models.py
 
 import torch
 import torch.nn as nn
@@ -38,7 +39,7 @@ class DiTConfig:
     class_dropout_prob: float = 0.1
     num_classes: int = 0
     use_long_skip: bool = True
-    final_conv: bool = True
+    final_conv: bool = False
 
 
 #################################################################################

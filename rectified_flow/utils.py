@@ -4,6 +4,70 @@ import numpy as np
 import torchvision
 import matplotlib.pyplot as plt
 
+
+def match_dim_with_data(
+    t: torch.Tensor | float | list[float],
+    X_shape: tuple,
+    device: torch.device = torch.device("cpu"),
+    dtype: torch.dtype = torch.float32,
+    expand_dim: bool = True,
+):
+    """
+    Prepares the time tensor by reshaping it to match the dimensions of X.
+
+    Args:
+        t (Union[torch.Tensor, float, List[float]]): Time tensor, which can be:
+            - A scalar (float or 0-dimensional torch.Tensor)
+            - A list of floats with length equal to the batch size or length 1
+            - A torch.Tensor of shape (B,), (B, 1), or (1,)
+        X_shape (tuple): Shape of the tensor X, e.g., X.shape
+
+    Returns:
+        torch.Tensor: Reshaped time tensor, ready for broadcasting with X.
+    """
+    B = X_shape[0]  # Batch size
+    ndim = len(X_shape)
+
+    if isinstance(t, float): # Create a tensor of shape (B,)
+        t = torch.full((B,), t, device=device, dtype=dtype)
+    elif isinstance(t, list):
+        if len(t) == 1: # If t is a list of length 1, repeat the scalar value B times
+            t = torch.full((B,), t[0], device=device, dtype=dtype)
+        elif len(t) == B:
+            t = torch.tensor(t, device=device, dtype=dtype)
+        else:
+            raise ValueError(f"Length of t list ({len(t)}) does not match batch size ({B}) and is not 1.")
+    elif isinstance(t, torch.Tensor):
+        t = t.to(device=device, dtype=dtype)
+        if t.ndim == 0: # Scalar tensor, expand to (B,)
+            t = t.repeat(B)
+        elif t.ndim == 1:
+            if t.shape[0] == 1: # Tensor of shape (1,), repeat to (B,)
+                t = t.repeat(B)
+            elif t.shape[0] == B: # t is already of shape (B,)
+                pass
+            else:
+                raise ValueError(f"Batch size of t ({t.shape[0]}) does not match X ({B}).")
+        elif t.ndim == 2:
+            if t.shape == (B, 1): # t is of shape (B, 1), squeeze last dimension
+                t = t.squeeze(1)
+            elif t.shape == (1, 1): # t is of shape (1, 1), expand to (B,)
+                t = t.squeeze().repeat(B)
+            else:
+                raise ValueError(f"t must be of shape ({B}, 1) or (1, 1), but got {t.shape}")
+        else:
+            raise ValueError(f"t can have at most 2 dimensions, but got {t.ndim}")
+    else:
+        raise TypeError(f"t must be a torch.Tensor, float, or a list of floats, but got {type(t)}.")
+
+    # Reshape t to have singleton dimensions matching X_shape after the batch dimension
+    if expand_dim:
+        expanded_dims = [1] * (ndim - 1)
+        t = t.view(B, *expanded_dims)
+
+    return t
+
+
 def visualize_2d_trajectories(
     trajectories_list: list[torch.Tensor],
     D1_gt_samples: torch.Tensor = None,
@@ -52,6 +116,7 @@ def visualize_2d_trajectories(
     # Add legend and adjust layout
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
+
 
 def set_seed(seed: int):
     random.seed(seed)
