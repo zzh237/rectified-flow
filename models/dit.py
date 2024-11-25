@@ -271,8 +271,9 @@ class DiT(nn.Module):
 
         model_to_save = self.module if hasattr(self, 'module') else self
         state_dict = model_to_save.state_dict()
+        state_dict_cpu = {k: v.cpu() for k, v in state_dict.items()}
         output_model_file = os.path.join(save_directory, f"{filename}_model.pt")
-        torch.save(state_dict, output_model_file)
+        torch.save(state_dict_cpu, output_model_file)
         print(f"Model weights saved to {output_model_file}")
 
     @classmethod

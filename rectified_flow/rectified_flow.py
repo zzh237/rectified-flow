@@ -354,14 +354,13 @@ class RectifiedFlow:
         data_shape: tuple,
         model: nn.Module,
         interp: AffineInterp | str = "straight",
-        source_distribution: torch.distributions.Distribution | str = "normal",
+        source_distribution: torch.distributions.Distribution | str = "normal" | Callable,
         is_independent_coupling: bool = True,
         train_time_distribution: TrainTimeSampler | str = "uniform",
         train_time_weight: TrainTimeWeights | str = "uniform",
         criterion: RFLossFunction | str = "mse",
         device: torch.device = torch.device("cpu"),
         dtype: torch.dtype = torch.float32,
-        seed: int = 0,
     ):
         self.data_shape = data_shape
         self.model = model 
@@ -369,7 +368,7 @@ class RectifiedFlow:
         self.interp: AffineInterp = (
             interp if isinstance(interp, AffineInterp) else AffineInterp(interp)
         )
-        self.time_sampler: TrainTimeSampler = (
+        self.train_time_sampler: TrainTimeSampler = (
             train_time_distribution
             if isinstance(train_time_distribution, TrainTimeSampler)
             else TrainTimeSampler(train_time_distribution)
@@ -383,18 +382,24 @@ class RectifiedFlow:
             criterion if isinstance(criterion, RFLossFunction) else RFLossFunction(criterion)
         )
         
-        self.pi_0 = source_distribution if isinstance(source_distribution, dist.Distribution) else dist.Normal(0, 1).expand(data_shape)
+        self.pi_0 = source_distribution
+        if self.pi_0 == "normal": self.pi_0 = dist.Normal(0, 1).expand(data_shape)
+
         self.independent_coupling = is_independent_coupling
 
         self.device = device
         self.dtype = dtype
-        self.seed = seed
 
-    def sample_time(self, batch_size: int):
-        return self.time_sampler(batch_size, device=self.device, dtype=self.dtype)
+    def sample_train_time(self, batch_size: int):
+        return self.train_time_sampler(batch_size, device=self.device, dtype=self.dtype)
 
     def sample_source_distribution(self, batch_size: int):
-        return self.pi_0.sample((batch_size,)).to(self.device, self.dtype)
+        if isinstance(self.pi_0, dist.Distribution):
+            return self.pi_0.sample((batch_size,)).to(self.device, self.dtype)
+        elif callable(self.pi_0):
+            return self.pi_0(batch_size).to(self.device, self.dtype)
+        else:
+            raise ValueError("Source distribution must be a torch.distributions.Distribution or a callable.")
 
     def get_interpolation(
         self,
@@ -468,7 +473,7 @@ class RectifiedFlow:
             X_1 = X_1.to(self.dtype)
             warnings.warn("X_1 moved to dtype of the model.")
 
-        t = self.sample_time(X_1.shape[0]) if t is None else t
+        t = self.sample_train_time(X_1.shape[0]) if t is None else t
         X_0 = self.sample_source_distribution(X_1.shape[0]) if X_0 is None else X_0
 
         X_t, dot_Xt = self.get_interpolation(X_0, X_1, t)
@@ -490,24 +495,24 @@ class RectifiedFlow:
         return self.get_score_function_from_velocity(Xt, vt, t)
 
     def get_sde_params_by_sigma(self, vt, xt, t, sigma):
-        # SDE coeffs for dX = vt(Xt) + 0.5*sigma_t^2*Dlogp(Xt) + sigma_t*dWt
+        # SDE coeffs for dX = vt(Xt) + sigma_t^2*Dlogp(Xt) + sqrt(2)*sigma_t*dWt
         self.assert_canonical()
         sigma_t = sigma(t)
         self.interp.solve(t=t, xt=xt, dot_xt=vt)
         dlogp = - self.interp.x0/self.interp.bt
-        vt_sde = vt + 0.5 * sigma_t**2 * dlogp
-        return vt_sde, sigma_t
+        vt_sde = vt + sigma_t**2 * dlogp
+        return vt_sde, sigma_t * 2**0.5
     
     def get_stable_sde_params(self, vt, xt, t, e):
-        # From SDE coeffs for dX = vt(Xt) - .5*sigma_t^2*E[X0|Xt]/bt + sigma_t*dWt,
+        # From SDE coeffs for dX = vt(Xt) -sigma_t^2*E[X0|Xt]/bt + sqrt(2)*sigma_t*dWt,
         # let et^2 = sigmat^2/bt, we have sigmat = sqrt(bt) * et, we have:
-        # dX = vt(Xt) - .5*et^2*E[X0|Xt]+ sqrt(bt) * et *dWt
+        # dX = vt(Xt) - et^2*E[X0|Xt]+ sqrt(2*bt) * et *dWt
         self.assert_canonical()
         self.interp.solve(t=t, xt=xt, dot_xt=vt)
         et = e(self.match_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype))
         x0_pred  = - self.interp.x0/self.interp.bt
-        vt_sde = vt - x0_pred * et**2 * 0.5
-        sigma_t = et * self.interp.bt**0.5
+        vt_sde = vt - x0_pred * et**2
+        sigma_t = et * self.interp.bt**0.5 * (2**0.5)
         # at, bt, dot_at, dot_bt = self.interp.get_coeffs(t)
         # vt_sde =vt * (1+et) - et * dot_at / at * xt
         # sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
@@ -515,6 +520,8 @@ class RectifiedFlow:
 
     def is_pi0_zero_mean_gaussian(self):
         """Check if pi0 is a zero-mean Gaussian distribution."""
+        if callable(self.pi_0): return True # NOTE: fix this
+
         is_multivariate_normal = (
             isinstance(self.pi_0, dist.MultivariateNormal) and 
             torch.allclose(self.pi_0.mean, torch.zeros_like(self.pi_0.mean))

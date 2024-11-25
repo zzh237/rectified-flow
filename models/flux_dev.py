@@ -14,6 +14,7 @@ class FluxWrapper:
         width: int,
         dtype: torch.dtype,
         device: torch.device,
+        seed: int = 0,
     ):
         """
         Initializes the FluxWrapper with the necessary components.
@@ -31,6 +32,10 @@ class FluxWrapper:
             width = 16 * (width // 16)
             warnings.warn(f"Height and width must be divisible by 16. Adjusted to {height}x{width}.")
         self.height, self.width = height, width
+        self.data_shape = (16, height // 8, width // 8)
+        self.image_seq_len = (height // 16) * (width // 16)
+
+        self.generator = torch.Generator(device=device).manual_seed(seed)
 
         self.dtype = dtype
         self.device = device
@@ -41,10 +46,9 @@ class FluxWrapper:
         self.pooled_prompt_embeds = None
         self.text_ids = None
 
-    def prepare_packed_latents(
+    def sample_source_distribution(
         self,
         batch_size: int,
-        generator: torch.Generator | None = None,
         vae_latents: torch.Tensor | None = None,
     ):
         # VAE applies 8x compression on images but we must also account for packing which requires
@@ -65,11 +69,10 @@ class FluxWrapper:
             assert vae_latents.shape[2] == shape[2], "Height must match the VAE latent height."
             assert vae_latents.shape[3] == shape[3], "Width must match the VAE latent width."
         else:
-            vae_latents = torch.randn(shape, generator=generator, device=self.device, dtype=self.dtype)
+            vae_latents = torch.randn(shape, generator=self.generator, device=self.device, dtype=self.dtype)
 
         # After packing, shape [num_samples, (resolution // 16 * resolution // 16), 16 * 2 * 2]
         packed_latents = _pack_latents(vae_latents, batch_size, 16, height, width)
-        self.image_seq_len = packed_latents.shape[1]
         # print("Packed latents shape = ", packed_latents.shape)
 
         latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, self.device, self.dtype)
@@ -171,6 +174,17 @@ class FluxWrapper:
         flux_velocity = -flux_velocity
 
         return flux_velocity
+    
+    def unpack_and_decode(
+        self,
+        packed_latents: Tensor, 
+    ):  
+        packed_latents = packed_latents.clone().to(device=self.device, dtype=self.dtype)
+        assert packed_latents.shape[1] == self.image_seq_len, "Number of patches must match the image sequence length."
+        assert packed_latents.shape[2] == 16 * 4, "Number of channels must match the VAE latent channels."
+        latents = _unpack_latents(packed_latents, self.height, self.width, self.pipeline.vae_scale_factor)
+        imgs = decode_imgs(latents, self.pipeline)[0]
+        return imgs
     
 
 @torch.inference_mode()
