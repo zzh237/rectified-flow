@@ -142,8 +142,8 @@ def visualize_2d_trajectories(
     # Plot trajectory lines
     for i in range(min(num_trajectories, xtraj.shape[0])):
         plt.plot(
-            xtraj[i, :, dim0], 
-            xtraj[i, :, dim1], 
+            xtraj[:, i, dim0], 
+            xtraj[:, i, dim1], 
             '--g', 
             alpha=alpha_trajectories
         )
