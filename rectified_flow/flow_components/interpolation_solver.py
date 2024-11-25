@@ -3,7 +3,7 @@ import torch.nn as nn
 import sympy
 from typing import Callable
 
-from rectified_flow.flow_components.utils import match_dim_with_data
+from rectified_flow.utils import match_dim_with_data
 
 
 class AffineInterpSolver:

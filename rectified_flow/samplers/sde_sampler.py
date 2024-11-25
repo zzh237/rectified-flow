@@ -1,6 +1,6 @@
 import torch
 from .base_sampler import Sampler
-from rectified_flow.flow_components.utils import match_dim_with_data
+from rectified_flow.utils import match_dim_with_data
 
 
 class SDESampler(Sampler):

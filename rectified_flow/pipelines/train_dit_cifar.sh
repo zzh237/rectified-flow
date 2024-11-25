@@ -1,7 +1,7 @@
-export OUTPUT_DIR="/path/to/output_dir"
-export DATA_ROOT="/path/to/data_root"
+export OUTPUT_DIR="/youroutputdir"
+export DATA_ROOT="/yourdatadir"
 
-accelerate launch -m pipelines.train_dit_cifar \
+accelerate launch -m rectified_flow.pipelines.train_dit_cifar \
   --output_dir="$OUTPUT_DIR" \
   --resume_from_checkpoint="latest" \
   --data_root="$DATA_ROOT" \
@@ -17,7 +17,7 @@ accelerate launch -m pipelines.train_dit_cifar \
   --interp="straight" \
   --source_distribution="normal" \
   --is_independent_coupling=True \
-  --train_time_distribution="uniform" \
+  --train_time_distribution="lognormal" \
   --train_time_weight="uniform" \
   --criterion="mse" \
   --use_ema

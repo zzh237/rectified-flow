@@ -39,7 +39,7 @@ class DiTConfig:
     class_dropout_prob: float = 0.1
     num_classes: int = 0
     use_long_skip: bool = True
-    final_conv: bool = True
+    final_conv: bool = False
 
 
 #################################################################################

@@ -11,11 +11,11 @@ from scipy.integrate import solve_ivp
 from typing import Any, Callable, Dict, List, Optional, Union, Tuple
 from dataclasses import dataclass
 
-from rectified_flow.flow_components.interpolation_solver import AffineInterp
-from rectified_flow.flow_components.train_time_sampler import TrainTimeSampler
-from rectified_flow.flow_components.train_time_weight import TrainTimeWeight
-from rectified_flow.flow_components.loss_function import RectifiedFlowLossFunction
-from rectified_flow.flow_components.utils import match_dim_with_data
+from .flow_components.interpolation_solver import AffineInterp
+from .flow_components.train_time_sampler import TrainTimeSampler
+from .flow_components.train_time_weight import TrainTimeWeight
+from .flow_components.loss_function import RectifiedFlowLossFunction
+from .utils import match_dim_with_data
 
 
 class RectifiedFlow:
