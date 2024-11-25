@@ -66,7 +66,7 @@ def match_dim_with_data(
         t = t.view(B, *expanded_dims)
 
     return t
-
+    
 
 def visualize_2d_trajectories(
     trajectories_list: list[torch.Tensor],
@@ -83,6 +83,7 @@ def visualize_2d_trajectories(
     
     Parameters:
         trajectories_list (list): List of trajectories to display.
+        D1_gt_samples (torch.Tensor, optional): Ground truth samples.
         num_trajectories (int): Number of trajectories to display.
         markersize (int): Size of the markers. 
         dimensions (list): Indices of the dimensions to plot.
@@ -91,31 +92,69 @@ def visualize_2d_trajectories(
         alpha_gt_points (float): Transparency of true points.
     """
     dim0, dim1 = dimensions
-    D1_gt_samples = D1_gt_samples.clone().cpu().detach().numpy() if D1_gt_samples is not None else None
-    traj_list_flat = [traj.clone().detach().cpu().reshape(traj.shape[0], -1) for traj in trajectories_list]
-
-    xtraj = torch.stack(traj_list_flat)
-    print("xtraj.shape", xtraj.shape)
-
+    
+    # Convert ground truth samples to NumPy if provided
     if D1_gt_samples is not None:
-        plt.plot(D1_gt_samples[:, dim0], D1_gt_samples[:, dim1], '.', 
-                    label='D1', markersize=markersize, alpha=alpha_gt_points)
+        D1_gt_samples = D1_gt_samples.clone().cpu().detach().numpy()
+    
+    # Flatten and stack trajectories, then convert to NumPy
+    traj_list_flat = [
+        traj.clone().detach().cpu().reshape(traj.shape[0], -1) 
+        for traj in trajectories_list
+    ]
+    
+    xtraj = torch.stack(traj_list_flat).numpy()
+    print("xtraj.shape", xtraj.shape)
+    
+    plt.figure(figsize=(10, 8))
+    
+    # Plot ground truth samples
+    if D1_gt_samples is not None:
+        plt.plot(
+            D1_gt_samples[:, dim0], 
+            D1_gt_samples[:, dim1], 
+            '.', 
+            label='D1', 
+            markersize=markersize, 
+            alpha=alpha_gt_points
+        )
     
     # Plot initial points from trajectories
-    plt.plot(xtraj[0][:, dim0], xtraj[0][:, dim1], '.', 
-                label='D0', markersize=markersize, alpha=alpha_gt_points)
+    plt.plot(
+        xtraj[0][:, dim0], 
+        xtraj[0][:, dim1], 
+        '.', 
+        label='D0', 
+        markersize=markersize, 
+        alpha=alpha_gt_points
+    )
     
     # Plot generated points
-    plt.plot(xtraj[-1][:, dim0], xtraj[-1][:, dim1], 'r.', 
-             label='Generated', markersize=markersize, alpha=alpha_generated_points)
+    plt.plot(
+        xtraj[-1][:, dim0], 
+        xtraj[-1][:, dim1], 
+        'r.', 
+        label='Generated', 
+        markersize=markersize, 
+        alpha=alpha_generated_points
+    )
     
     # Plot trajectory lines
-    plt.plot(xtraj[:, :num_trajectories, dim0], xtraj[:, :num_trajectories, dim1], '--g', 
-             alpha=alpha_trajectories)
+    for i in range(min(num_trajectories, xtraj.shape[0])):
+        plt.plot(
+            xtraj[i, :, dim0], 
+            xtraj[i, :, dim1], 
+            '--g', 
+            alpha=alpha_trajectories
+        )
     
     # Add legend and adjust layout
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.xlabel(f'Dimension {dim0}')
+    plt.ylabel(f'Dimension {dim1}')
+    plt.title('2D Trajectories Visualization')
     plt.tight_layout()
+    plt.show()
 
 
 def set_seed(seed: int):
@@ -127,6 +166,7 @@ def set_seed(seed: int):
         torch.cuda.manual_seed_all(seed) 
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+
 
 def plot_cifar_results(images, nrow=10):
     images = (images.cpu().detach().clone() * 0.5 + 0.5).clamp(0, 1)
