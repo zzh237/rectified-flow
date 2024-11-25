@@ -495,24 +495,24 @@ class RectifiedFlow:
         return self.get_score_function_from_velocity(Xt, vt, t)
 
     def get_sde_params_by_sigma(self, vt, xt, t, sigma):
-        # SDE coeffs for dX = vt(Xt) + 0.5*sigma_t^2*Dlogp(Xt) + sigma_t*dWt
+        # SDE coeffs for dX = vt(Xt) + sigma_t^2*Dlogp(Xt) + sqrt(2)*sigma_t*dWt
         self.assert_canonical()
         sigma_t = sigma(t)
         self.interp.solve(t=t, xt=xt, dot_xt=vt)
         dlogp = - self.interp.x0/self.interp.bt
-        vt_sde = vt + 0.5 * sigma_t**2 * dlogp
-        return vt_sde, sigma_t
+        vt_sde = vt + sigma_t**2 * dlogp
+        return vt_sde, sigma_t * 2**0.5
     
     def get_stable_sde_params(self, vt, xt, t, e):
-        # From SDE coeffs for dX = vt(Xt) - .5*sigma_t^2*E[X0|Xt]/bt + sigma_t*dWt,
+        # From SDE coeffs for dX = vt(Xt) -sigma_t^2*E[X0|Xt]/bt + sqrt(2)*sigma_t*dWt,
         # let et^2 = sigmat^2/bt, we have sigmat = sqrt(bt) * et, we have:
-        # dX = vt(Xt) - .5*et^2*E[X0|Xt]+ sqrt(bt) * et *dWt
+        # dX = vt(Xt) - et^2*E[X0|Xt]+ sqrt(2*bt) * et *dWt
         self.assert_canonical()
         self.interp.solve(t=t, xt=xt, dot_xt=vt)
         et = e(self.match_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype))
         x0_pred  = - self.interp.x0/self.interp.bt
-        vt_sde = vt - x0_pred * et**2 * 0.5
-        sigma_t = et * self.interp.bt**0.5
+        vt_sde = vt - x0_pred * et**2
+        sigma_t = et * self.interp.bt**0.5 * (2**0.5)
         # at, bt, dot_at, dot_bt = self.interp.get_coeffs(t)
         # vt_sde =vt * (1+et) - et * dot_at / at * xt
         # sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)

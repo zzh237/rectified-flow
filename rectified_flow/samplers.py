@@ -285,7 +285,7 @@ class OverShootingSampler(Sampler):
         
 
 class SDESampler(Sampler):
-    def __init__(self, e=lambda t: torch.ones_like(t), **kwargs):
+    def __init__(self, e=lambda t: 10*t, **kwargs):
         super().__init__(**kwargs)
         self.e = e
 
