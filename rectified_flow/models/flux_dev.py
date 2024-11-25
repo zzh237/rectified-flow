@@ -175,7 +175,7 @@ class FluxWrapper:
 
         return flux_velocity
     
-    def unpack_and_decode(
+    def decode(
         self,
         packed_latents: Tensor, 
     ):  
