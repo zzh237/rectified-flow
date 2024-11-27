@@ -225,98 +225,108 @@ class FourierEmbedding(torch.nn.Module):
 # Equations". Equivalent to the original implementation by Song et al.,
 # available at https://github.com/yang-song/score_sde_pytorch
 
+@dataclass
+class SongUNetConfig:
+    img_resolution: int                            # Image resolution at input/output.
+    in_channels: int                               # Number of color channels at input.
+    out_channels: int                              # Number of color channels at output.
+    label_dim: int = 0                             # Number of class labels, 0 = unconditional.
+    augment_dim: int = 0                           # Augmentation label dimensionality, 0 = no augmentation.
+
+    model_channels: int = 128                      # Base multiplier for the number of channels.
+    channel_mult: list[int] = (2, 2, 2)            # Per-resolution multipliers for the number of channels.
+    channel_mult_emb: int = 4                      # Multiplier for the dimensionality of the embedding vector.
+    num_blocks: int = 4                            # Number of residual blocks per resolution.
+    attn_resolutions: list[int] = (16,)            # List of resolutions with self-attention.
+    dropout: float = 0.10                          # Dropout probability of intermediate activations.
+    label_dropout: float = 0.0                     # Dropout probability of class labels for classifier-free guidance.
+
+    embedding_type: str = 'positional'             # Timestep embedding type: 'positional' or 'fourier'.
+    channel_mult_time: int = 1                     # Timestep embedding size: 1 for DDPM++, 2 for NCSN++.
+    encoder_type: str = 'standard'                 # Encoder architecture: 'standard' or 'residual'.
+    decoder_type: str = 'standard'                 # Decoder architecture: 'standard' or 'residual'.
+    resample_filter: list[int] = (1, 1)            # Resampling filter, e.g., [1, 1] or [1, 3, 3, 1].
+
+
 class SongUNet(torch.nn.Module):
-    def __init__(self,
-        img_resolution,                     # Image resolution at input/output.
-        in_channels,                        # Number of color channels at input.
-        out_channels,                       # Number of color channels at output.
-        label_dim           = 0,            # Number of class labels, 0 = unconditional.
-        augment_dim         = 0,            # Augmentation label dimensionality, 0 = no augmentation.
+    config_class = SongUNetConfig
 
-        model_channels      = 128,          # Base multiplier for the number of channels.
-        channel_mult        = [2,2,2],    # Per-resolution multipliers for the number of channels.
-        channel_mult_emb    = 4,            # Multiplier for the dimensionality of the embedding vector.
-        num_blocks          = 4,            # Number of residual blocks per resolution.
-        attn_resolutions    = [16],         # List of resolutions with self-attention.
-        dropout             = 0.10,         # Dropout probability of intermediate activations.
-        label_dropout       = 0,            # Dropout probability of class labels for classifier-free guidance.
-
-        embedding_type      = 'positional', # Timestep embedding type: 'positional' for DDPM++, 'fourier' for NCSN++.
-        channel_mult_time   = 1,            # Timestep embedding size: 1 for DDPM++, 2 for NCSN++.
-        encoder_type        = 'standard',   # Encoder architecture: 'standard' for DDPM++, 'residual' for NCSN++.
-        decoder_type        = 'standard',   # Decoder architecture: 'standard' for both DDPM++ and NCSN++.
-        resample_filter     = [1,1],        # Resampling filter: [1,1] for DDPM++, [1,3,3,1] for NCSN++.
+    def __init__(
+        self,
+        config: SongUNetConfig,
     ):
-        assert embedding_type in ['fourier', 'positional']
-        assert encoder_type in ['standard', 'skip', 'residual']
-        assert decoder_type in ['standard', 'skip']
+        self.config = config
+
+        assert config.embedding_type in ['fourier', 'positional']
+        assert config.encoder_type in ['standard', 'skip', 'residual']
+        assert config.decoder_type in ['standard', 'skip']
 
         super().__init__()
-        self.label_dropout = label_dropout
-        emb_channels = model_channels * channel_mult_emb
-        time_channels = model_channels * channel_mult_time
+        self.label_dropout = config.label_dropout
+        emb_channels = config.model_channels * config.channel_mult_emb
+        time_channels = config.model_channels * config.channel_mult_time
         init = dict(init_mode='xavier_uniform')
         init_zero = dict(init_mode='xavier_uniform', init_weight=1e-5)
         init_attn = dict(init_mode='xavier_uniform', init_weight=np.sqrt(0.2))
         block_kwargs = dict(
-            emb_channels=emb_channels, num_heads=1, dropout=dropout, skip_scale=np.sqrt(0.5), eps=1e-6,
-            resample_filter=resample_filter, resample_proj=True, adaptive_scale=False,
+            emb_channels=emb_channels, num_heads=1, dropout=config.dropout, skip_scale=np.sqrt(0.5), eps=1e-6,
+            resample_filter=config.resample_filter, resample_proj=True, adaptive_scale=False,
             init=init, init_zero=init_zero, init_attn=init_attn,
         )
 
         # Mapping.
-        self.map_time = PositionalEmbedding(num_channels=time_channels, endpoint=True) if embedding_type == 'positional' else FourierEmbedding(num_channels=time_channels)
-        self.map_label = Linear(in_features=label_dim, out_features=time_channels, **init) if label_dim else None
-        self.map_augment = Linear(in_features=augment_dim, out_features=time_channels, bias=False, **init) if augment_dim else None
+        self.map_time = PositionalEmbedding(num_channels=time_channels, endpoint=True) if config.embedding_type == 'positional' else FourierEmbedding(num_channels=time_channels)
+        self.map_label = Linear(in_features=config.label_dim, out_features=time_channels, **init) if config.label_dim else None
+        self.map_augment = Linear(in_features=config.augment_dim, out_features=time_channels, bias=False, **init) if config.augment_dim else None
         self.map_layer0 = Linear(in_features=time_channels, out_features=emb_channels, **init)
         self.map_layer1 = Linear(in_features=emb_channels, out_features=emb_channels, **init)
 
         # Encoder.
         self.enc = torch.nn.ModuleDict()
-        cout = in_channels
-        caux = in_channels
-        for level, mult in enumerate(channel_mult):
-            res = img_resolution >> level
+        cout = config.in_channels
+        caux = config.in_channels
+        for level, mult in enumerate(config.channel_mult):
+            res = config.img_resolution >> level
             if level == 0:
                 cin = cout
-                cout = model_channels
+                cout = config.model_channels
                 self.enc[f'{res}x{res}_conv'] = Conv2d(in_channels=cin, out_channels=cout, kernel=3, **init)
             else:
                 self.enc[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
-                if encoder_type == 'skip':
-                    self.enc[f'{res}x{res}_aux_down'] = Conv2d(in_channels=caux, out_channels=caux, kernel=0, down=True, resample_filter=resample_filter)
+                if config.encoder_type == 'skip':
+                    self.enc[f'{res}x{res}_aux_down'] = Conv2d(in_channels=caux, out_channels=caux, kernel=0, down=True, resample_filter=config.resample_filter)
                     self.enc[f'{res}x{res}_aux_skip'] = Conv2d(in_channels=caux, out_channels=cout, kernel=1, **init)
-                if encoder_type == 'residual':
-                    self.enc[f'{res}x{res}_aux_residual'] = Conv2d(in_channels=caux, out_channels=cout, kernel=3, down=True, resample_filter=resample_filter, fused_resample=True, **init)
+                if config.encoder_type == 'residual':
+                    self.enc[f'{res}x{res}_aux_residual'] = Conv2d(in_channels=caux, out_channels=cout, kernel=3, down=True, resample_filter=config.resample_filter, fused_resample=True, **init)
                     caux = cout
-            for idx in range(num_blocks):
+            for idx in range(config.num_blocks):
                 cin = cout
-                cout = model_channels * mult
-                attn = (res in attn_resolutions)
+                cout = config.model_channels * mult
+                attn = (res in config.attn_resolutions)
                 self.enc[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
         skips = [block.out_channels for name, block in self.enc.items() if 'aux' not in name]
 
         # Decoder.
         self.dec = torch.nn.ModuleDict()
-        for level, mult in reversed(list(enumerate(channel_mult))):
-            res = img_resolution >> level
-            if level == len(channel_mult) - 1:
+        for level, mult in reversed(list(enumerate(config.channel_mult))):
+            res = config.img_resolution >> level
+            if level == len(config.channel_mult) - 1:
                 self.dec[f'{res}x{res}_in0'] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
                 self.dec[f'{res}x{res}_in1'] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
             else:
                 self.dec[f'{res}x{res}_up'] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
-            for idx in range(num_blocks + 1):
+            for idx in range(config.num_blocks + 1):
                 cin = cout + skips.pop()
-                cout = model_channels * mult
-                attn = (idx == num_blocks and res in attn_resolutions)
+                cout = config.model_channels * mult
+                attn = (idx == config.num_blocks and res in config.attn_resolutions)
                 self.dec[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
-            if decoder_type == 'skip' or level == 0:
-                if decoder_type == 'skip' and level < len(channel_mult) - 1:
-                    self.dec[f'{res}x{res}_aux_up'] = Conv2d(in_channels=out_channels, out_channels=out_channels, kernel=0, up=True, resample_filter=resample_filter)
+            if config.decoder_type == 'skip' or level == 0:
+                if config.decoder_type == 'skip' and level < len(config.channel_mult) - 1:
+                    self.dec[f'{res}x{res}_aux_up'] = Conv2d(in_channels=config.out_channels, out_channels=config.out_channels, kernel=0, up=True, resample_filter=config.resample_filter)
                 self.dec[f'{res}x{res}_aux_norm'] = GroupNorm(num_channels=cout, eps=1e-6)
-                self.dec[f'{res}x{res}_aux_conv'] = Conv2d(in_channels=cout, out_channels=out_channels, kernel=3, **init_zero)
+                self.dec[f'{res}x{res}_aux_conv'] = Conv2d(in_channels=cout, out_channels=config.out_channels, kernel=3, **init_zero)
 
-    def save_pretrained(self, save_directory: str, filename: str = "dit"):
+    def save_pretrained(self, save_directory: str, filename: str = "unet"):
         os.makedirs(save_directory, exist_ok=True)
         config_path = os.path.join(save_directory, f"{filename}_config.json")
         config_dict = asdict(self.config)
@@ -332,7 +342,7 @@ class SongUNet(torch.nn.Module):
         print(f"Model weights saved to {output_model_file}")
 
     @classmethod
-    def from_pretrained(cls, save_directory: str, filename: str = "dit_model", use_ema: bool = False):
+    def from_pretrained(cls, save_directory: str, filename: str = "unet", use_ema: bool = False):
         config_path = os.path.join(save_directory, f"{filename}_config.json")
         with open(config_path, 'r', encoding='utf-8') as f:
             config_dict = json.load(f)
