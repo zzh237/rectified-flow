@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 
 
 class EMAModel:
-    def __init__(self, model, decay=0.9999, ema_hist=None):
+    def __init__(self, model, decay=0.9999):
         self.model = model
         self.decay = decay
         self.shadow = {k: v.clone().detach() for k, v in model.state_dict().items()}
@@ -340,7 +340,7 @@ def main(args):
     # 1.1 Prepare models
     logger.info("******  preparing models  ******")
 
-    DiT_teacher_config = DiTConfig(
+    DiT_config = DiTConfig(
         input_size = args.resolution,
         patch_size = 2,
         in_channels = 3,
@@ -353,7 +353,7 @@ def main(args):
         use_long_skip = True,
         final_conv = False,
     )
-    model = DiT(DiT_teacher_config)
+    model = DiT(DiT_config)
     
     model.to(accelerator.device, dtype=weight_dtype)
     model.train().requires_grad_(True)
@@ -446,8 +446,8 @@ def main(args):
         model, optimizer, train_dataloader, lr_scheduler
     )
 
-    # wrap up rf_func after accelerator.prepare
-    rf_func = RectifiedFlow(
+    # wrap up rectified_flow after accelerator.prepare
+    rectified_flow = RectifiedFlow(
         data_shape = (3, args.resolution, args.resolution),
         interp = args.interp,
         source_distribution = args.source_distribution,
@@ -525,12 +525,12 @@ def main(args):
 
             with accelerator.accumulate(models_to_accumulate):
                 X_1, _ = batch
-                X_0 = torch.randn_like(X_1)
-                t = rf_func.sample_train_time(X_1.shape[0])
+                X_0 = rectified_flow.sample_source_distribution(X_1.shape[0])
+                t = rectified_flow.sample_train_time(X_1.shape[0])
 
-                loss = rf_func.get_loss(
+                loss = rectified_flow.get_loss(
                     X_0=X_0, 
-                    X_1=X_1, 
+                    X_1=X_1,
                     t=t,
                 )
 

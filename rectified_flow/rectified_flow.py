@@ -24,7 +24,7 @@ class RectifiedFlow:
         data_shape: tuple,
         model: nn.Module,
         interp: AffineInterp | str = "straight",
-        source_distribution: torch.distributions.Distribution | str = "normal" | Callable,
+        source_distribution: torch.distributions.Distribution | str | Callable = "normal",
         is_independent_coupling: bool = True,
         train_time_distribution: TrainTimeSampler | str = "uniform",
         train_time_weight: TrainTimeWeight | str = "uniform",
@@ -111,7 +111,6 @@ class RectifiedFlow:
             torch.Tensor: Velocity tensor, same shape as X
         """
         assert X.shape[0] == t.shape[0] and t.ndim == 1, "Batch size of X and t must match."
-        # NOTE: May do t / velocity transformation, e.g. t = 1 - t, velocity = -velocity
         velocity = self.model(X, t, **kwargs)
         return velocity
     

@@ -12,7 +12,8 @@ accelerate launch -m rectified_flow.pipelines.train_dit_cifar \
   --checkpointing_steps=20000 \
   --learning_rate=1e-4 \
   --lr_scheduler="constant_with_warmup" \
-  --lr_warmup_steps=1000 \
+  --lr_warmup_steps=10000 \
+  ----random_flip \
   --allow_tf32 \
   --interp="straight" \
   --source_distribution="normal" \

@@ -9,7 +9,7 @@ from rectified_flow.utils import set_seed, match_dim_with_data
 
 
 class Sampler:
-    ODE_SAMPLING_STEP_LIMIT = 1000
+    ODE_SAMPLING_STEP_LIMIT = 5000
 
     def __init__( # NOTE: consider using dataclass config
         self,
@@ -17,13 +17,9 @@ class Sampler:
         num_steps: int | None = None,
         time_grid: list[float] | torch.Tensor | None = None,
         record_traj_period: int = 1,
-        seed: int = 0,
         callbacks: list[callable] | None = None,
         num_samples: int | None = None,
     ):
-        self.seed = seed
-        set_seed(seed)
-
         self.rectified_flow = rectified_flow
 
         # Prepare time grid
@@ -102,7 +98,7 @@ class Sampler:
             for callback in self.callbacks:
                 callback(self)
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def sample_loop(
         self,
         num_samples: int | None = None,
@@ -146,7 +142,7 @@ class Sampler:
         self.t_next = next(self.time_iter)
 
         # Recording trajectories
-        self._trajectories = [self.X_t.clone().cpu()]
+        self._trajectories = [self.X_t.detach().clone().cpu()]
         self._time_points = [self.t]
 
         # Runs the sampling process
