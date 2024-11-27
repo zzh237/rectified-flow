@@ -1,5 +1,5 @@
-export OUTPUT_DIR="/youroutputdir"
-export DATA_ROOT="/yourdatadir"
+export OUTPUT_DIR="/root/autodl-tmp/dit_skip_cifar"
+export DATA_ROOT="/root/autodl-tmp/cifar10"
 
 accelerate launch -m rectified_flow.pipelines.train_dit_cifar \
   --output_dir="$OUTPUT_DIR" \
@@ -10,10 +10,13 @@ accelerate launch -m rectified_flow.pipelines.train_dit_cifar \
   --train_batch_size=128 \
   --max_train_steps=1000000 \
   --checkpointing_steps=20000 \
-  --learning_rate=1e-4 \
+  --learning_rate=2e-4 \
+  --adam_beta1=0.99 \
+  --adam_beta2=0.999 \
+  --adam_weight_decay=0.03 \
   --lr_scheduler="constant_with_warmup" \
-  --lr_warmup_steps=10000 \
-  ----random_flip \
+  --lr_warmup_steps=2500 \
+  --random_flip \
   --allow_tf32 \
   --interp="straight" \
   --source_distribution="normal" \
