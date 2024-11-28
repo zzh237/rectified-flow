@@ -516,13 +516,13 @@ def main(args):
             models_to_accumulate = [model]
 
             with accelerator.accumulate(models_to_accumulate):
-                X_1, _ = batch
-                X_0 = rectified_flow.sample_source_distribution(X_1.shape[0])
-                t = rectified_flow.sample_train_time(X_1.shape[0])
+                x_1, _ = batch
+                x_0 = rectified_flow.sample_source_distribution(x_1.shape[0])
+                t = rectified_flow.sample_train_time(x_1.shape[0])
 
                 loss = rectified_flow.get_loss(
-                    X_0=X_0, 
-                    X_1=X_1,
+                    x_0=x_0, 
+                    x_1=x_1,
                     t=t,
                 )
 

@@ -47,7 +47,7 @@ class MLPVelocityConditioned(nn.Module):
         x = x.view(x.shape[0], -1)
         if labels is not None:
             labels = labels.float().view(labels.shape[0], -1)
-            xt = torch.cat((x, t, labels), dim=1)
+            x_t = torch.cat((x, t, labels), dim=1)
         else:
-            xt = torch.cat((x, t), dim=1)
-        return self.mlp(xt)
+            x_t = torch.cat((x, t), dim=1)
+        return self.mlp(x_t)

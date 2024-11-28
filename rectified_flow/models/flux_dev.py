@@ -60,7 +60,7 @@ class FluxWrapper:
     
     def __call__(
         self, 
-        X_t: Tensor,
+        x_t: Tensor,
         t: torch.Tensor,
         prompt: str | None = None,
         guidance_scale: float = 3.5,
@@ -71,7 +71,7 @@ class FluxWrapper:
         Computes the flux velocity for a given latent state and time.
 
         Args:
-            X_t: The packed latent variables at time t.
+            x_t: The packed latent variables at time t.
             t: The time in RF ODE, which will be converted to Flux's time (1 - t).
             prompt (str, optional): The text prompt. Defaults to empty string.
             guidance_scale (float, optional): The guidance scale. Defaults to 0.0.
@@ -82,22 +82,22 @@ class FluxWrapper:
         Returns:
             Tensor: The negative flux velocity.
         """
-        if X_t.device != self.device:
-            X_t = X_t.to(device=self.device)
-            warnings.warn(f"X_t was moved to the device {self.device} of the FluxWrapper.")
+        if x_t.device != self.device:
+            x_t = x_t.to(device=self.device)
+            warnings.warn(f"x_t was moved to the device {self.device} of the FluxWrapper.")
 
-        if X_t.dtype != self.dtype:
-            X_t = X_t.to(dtype=self.dtype)
-            warnings.warn(f"X_t was casted to the dtype {self.dtype} of the FluxWrapper.")
+        if x_t.dtype != self.dtype:
+            x_t = x_t.to(dtype=self.dtype)
+            warnings.warn(f"x_t was casted to the dtype {self.dtype} of the FluxWrapper.")
 
         # Convert ODE time t to Flux time 1 - t
         t_vec = 1.0 - t 
-        assert isinstance(t_vec, torch.Tensor) and t_vec.ndim == 1 and t.shape[0] == X_t.shape[0], \
+        assert isinstance(t_vec, torch.Tensor) and t_vec.ndim == 1 and t.shape[0] == x_t.shape[0], \
             "Time vector must be a 1D tensor with the same length as the batch size."
 
         # Prepare guidance vector
         guidance_vec = torch.full(
-            (X_t.shape[0],),
+            (x_t.shape[0],),
             guidance_scale,
             device=self.device,
             dtype=self.dtype
@@ -123,7 +123,7 @@ class FluxWrapper:
                     print(f"Prompt {prompt} encoded.")
 
         flux_velocity = self.pipeline.transformer(
-            hidden_states=X_t,
+            hidden_states=x_t,
             timestep=t_vec,
             guidance=guidance_vec,
             pooled_projections=self.pooled_prompt_embeds,

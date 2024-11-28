@@ -34,8 +34,8 @@ class Sampler:
 
         # Initialize sampling state
         self.num_samples = num_samples
-        self.X_t = None
-        self.X_0 = None
+        self.x_t = None
+        self.x_0 = None
         self.step_count = 0
 
     def _prepare_time_grid(self, num_steps, time_grid):
@@ -60,9 +60,9 @@ class Sampler:
         return num_steps, time_grid
 
     def get_velocity(self, **model_kwargs):
-        X_t, t = self.X_t, self.t
-        t = match_dim_with_data(t, X_t.shape, X_t.device, X_t.dtype, expand_dim=False)
-        return self.rectified_flow.get_velocity(X_t, t, **model_kwargs)
+        x_t, t = self.x_t, self.t
+        t = match_dim_with_data(t, x_t.shape, x_t.device, x_t.dtype, expand_dim=False)
+        return self.rectified_flow.get_velocity(x_t, t, **model_kwargs)
 
     def step(self, **model_kwargs):
         """
@@ -91,7 +91,7 @@ class Sampler:
     def record(self):
         """Records trajectories and other information."""
         if self.step_count % self.record_traj_period == 0:
-            self._trajectories.append(self.X_t.detach().clone().cpu())
+            self._trajectories.append(self.x_t.detach().clone().cpu())
             self._time_points.append(self.t)
 
             # Callbacks can be used for logging or additional recording
@@ -102,7 +102,7 @@ class Sampler:
     def sample_loop(
         self,
         num_samples: int | None = None,
-        X_0: torch.Tensor | None = None,
+        x_0: torch.Tensor | None = None,
         seed: int | None = None,
         num_steps: int | None = None,
         time_grid: list[float] | torch.Tensor | None = None,
@@ -112,22 +112,22 @@ class Sampler:
             set_seed(seed)
 
         if num_samples is None:
-            if X_0 is not None:
-                num_samples = X_0.shape[0]
+            if x_0 is not None:
+                num_samples = x_0.shape[0]
             elif self.num_samples is not None:
                 num_samples = self.num_samples
             else:
                 raise ValueError(
-                    "num_samples must be specified if X_0 is not provided."
+                    "num_samples must be specified if x_0 is not provided."
                 )
         self.num_samples = num_samples
 
         # Prepare initial state
-        if X_0 is not None:
-            self.X_t = X_0
+        if x_0 is not None:
+            self.x_t = x_0
         else:
-            self.X_t = self.rectified_flow.sample_source_distribution(num_samples)
-        self.X_0 = self.X_t.clone()
+            self.x_t = self.rectified_flow.sample_source_distribution(num_samples)
+        self.x_0 = self.x_t.clone()
 
         # Prepare time grid, can be overridden when calling the method
         if num_steps is not None:
@@ -142,7 +142,7 @@ class Sampler:
         self.t_next = next(self.time_iter)
 
         # Recording trajectories
-        self._trajectories = [self.X_t.detach().clone().cpu()]
+        self._trajectories = [self.x_t.detach().clone().cpu()]
         self._time_points = [self.t]
 
         # Runs the sampling process

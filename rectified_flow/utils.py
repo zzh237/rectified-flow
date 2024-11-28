@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 
 def match_dim_with_data(
     t: torch.Tensor | float | list[float],
-    X_shape: tuple,
+    x_shape: tuple,
     device: torch.device = torch.device("cpu"),
     dtype: torch.dtype = torch.float32,
     expand_dim: bool = True,
@@ -20,13 +20,13 @@ def match_dim_with_data(
             - A scalar (float or 0-dimensional torch.Tensor)
             - A list of floats with length equal to the batch size or length 1
             - A torch.Tensor of shape (B,), (B, 1), or (1,)
-        X_shape (tuple): Shape of the tensor X, e.g., X.shape
+        x_shape (tuple): Shape of the tensor X, e.g., X.shape
 
     Returns:
         torch.Tensor: Reshaped time tensor, ready for broadcasting with X.
     """
-    B = X_shape[0]  # Batch size
-    ndim = len(X_shape)
+    B = x_shape[0]  # Batch size
+    ndim = len(x_shape)
 
     if isinstance(t, float): # Create a tensor of shape (B,)
         t = torch.full((B,), t, device=device, dtype=dtype)
@@ -47,7 +47,7 @@ def match_dim_with_data(
             elif t.shape[0] == B: # t is already of shape (B,)
                 pass
             else:
-                raise ValueError(f"Batch size of t ({t.shape[0]}) does not match X ({B}).")
+                raise ValueError(f"Batch size of t ({t.shape[0]}) does not match x ({B}).")
         elif t.ndim == 2:
             if t.shape == (B, 1): # t is of shape (B, 1), squeeze last dimension
                 t = t.squeeze(1)
@@ -60,7 +60,7 @@ def match_dim_with_data(
     else:
         raise TypeError(f"t must be a torch.Tensor, float, or a list of floats, but got {type(t)}.")
 
-    # Reshape t to have singleton dimensions matching X_shape after the batch dimension
+    # Reshape t to have singleton dimensions matching x_shape after the batch dimension
     if expand_dim:
         expanded_dims = [1] * (ndim - 1)
         t = t.view(B, *expanded_dims)
