@@ -4,6 +4,8 @@
 
 </div>
 
+____________________________________________________________
+
 **Rectified Flows** is a repository that presents a unified and minimal codebase for implementing various diffusion and flow models.
 
 ---
