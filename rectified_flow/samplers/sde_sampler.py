@@ -4,11 +4,11 @@ from rectified_flow.utils import match_dim_with_data
 
 
 class SDESampler(Sampler):
-    def __init__(self, e=lambda t: 10*t, **kwargs):
+    def __init__(self, diffusion_coefficient=lambda t: 1, **kwargs):
         super().__init__(**kwargs)
-        self.e = e
+        self.diffusion_coefficient = diffusion_coefficient
 
-        if not (self.rectified_flow.is_pi0_standard_gaussian() and self.rectified_flow.independent_coupling):
+        if not (self.rectified_flow.is_pi0_standard_gaussian and self.rectified_flow.independent_coupling):
             raise ValueError(
                 "pi0 must be a standard Gaussian distribution, "
                 "and the coupling must be independent."
@@ -18,25 +18,27 @@ class SDESampler(Sampler):
         """Perform a single SDE sampling step."""
         t, t_next, X_t = self.t, self.t_next, self.X_t
         v_t = self.get_velocity(**model_kwargs)
-
-        # Prepare time tensor and ensure it is within bounds
-        t_ones = t * torch.ones((X_t.shape[0],), device=X_t.device)
-        t_ones = match_dim_with_data(t_ones, X_t.shape, X_t.device, X_t.dtype, expand_dim=True)
-        t_eps = 1e-12
-        t_ones = torch.clamp(t_ones, t_eps, 1 - t_eps)
         step_size = t_next - t
 
-        # Calculate alpha, beta, and their gradients
-        e_t = self.e(t_ones)
-        a_t, b_t, dot_a_t, dot_b_t = self.rectified_flow.interp.get_coeffs(t_ones)
+        # get dlogp_0, by Tweddie's formula, dlogp_t(x) = E[dlogp_0(X0)|Xt]/beta_t
+        if self.rectified_flow.is_pi0_standard_gaussian:
+            dlogp0 = lambda x: -x
+        else:
+            try:
+                dlogp0 = self.pi_0.score_function
+            except:
+                print("we must define a score_function attribute for pi_0")
 
-        # Adjust velocity and calculate noise scale
-        # print(f"e_t: {e_t.shape}, a_t: {a_t.shape}, b_t: {b_t.shape}, dot_a_t: {dot_a_t.shape}, dot_b_t: {dot_b_t.shape}")
-        v_adj_t = (1 + e_t) * v_t - e_t * dot_a_t / a_t * X_t
-        sigma_t = torch.sqrt(2 * (b_t**2 * dot_a_t / a_t - dot_b_t * b_t) * e_t)
-
-        # Predict x1 and update xt with noise
-        X_1_pred = X_t + (1 - t) * v_t
+        # generate noise
         noise = self.rectified_flow.sample_source_distribution(self.num_samples)
-        self.X_t = X_t + step_size * v_adj_t + sigma_t * step_size**0.5 * noise
-    
+
+        self.rectified_flow.interp.solve(t=t, xt=X_t, dot_xt=v_t)
+        x0 = self.rectified_flow.interp.x0
+        beta_t = self.rectified_flow.interp.bt
+        coeff = self.diffusion_coefficient(t)
+
+        langevin_term = (coeff * step_size * dlogp0(x0)
+                         + (2 * step_size * beta_t * coeff) ** (0.5) * noise)
+
+        X_t_next = X_t + step_size * v_t + langevin_term
+        self.X_t = X_t_next

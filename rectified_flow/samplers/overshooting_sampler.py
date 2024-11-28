@@ -19,7 +19,7 @@ class OverShootingSampler(Sampler):
             raise ValueError("Invalid overshooting method provided. Must be a string or callable.")
 
         # Ensure rf meets required conditions
-        if not (self.rectified_flow.is_pi0_zero_mean_gaussian() and self.rectified_flow.independent_coupling):
+        if not (self.rectified_flow.is_pi0_zero_mean_gaussian and self.rectified_flow.independent_coupling):
             raise ValueError(
                 "pi0 must be a zero-mean Gaussian distribution, and the coupling must be independent."
             )

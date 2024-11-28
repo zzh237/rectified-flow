@@ -77,84 +77,82 @@ def visualize_2d_trajectories(
     alpha_trajectories: float = 0.5,
     alpha_generated_points: float = 1.0,
     alpha_gt_points: float = 1.0,
+    show_legend: bool = True,
 ):
     """
     Plots 2D trajectories and points for visualization.
-    
+
     Parameters:
         trajectories_list (list): List of trajectories to display.
         D1_gt_samples (torch.Tensor, optional): Ground truth samples.
         num_trajectories (int): Number of trajectories to display.
-        markersize (int): Size of the markers. 
+        markersize (int): Size of the markers.
         dimensions (list): Indices of the dimensions to plot.
         alpha_trajectories (float): Transparency of trajectory lines.
         alpha_generated_points (float): Transparency of generated points.
         alpha_gt_points (float): Transparency of true points.
     """
     dim0, dim1 = dimensions
-    
+
     # Convert ground truth samples to NumPy if provided
     if D1_gt_samples is not None:
-        D1_gt_samples = D1_gt_samples.clone().cpu().detach().numpy()
-    
+        D1_gt_samples = D1_gt_samples.clone().to(torch.float32).cpu().detach().numpy()
+
     # Flatten and stack trajectories, then convert to NumPy
     traj_list_flat = [
-        traj.clone().detach().cpu().reshape(traj.shape[0], -1) 
+        traj.clone().to(torch.float32).detach().cpu().reshape(traj.shape[0], -1)
         for traj in trajectories_list
     ]
-    
+
     xtraj = torch.stack(traj_list_flat).numpy()
-    print("xtraj.shape", xtraj.shape)
-    
-    plt.figure(figsize=(10, 8))
-    
+
     # Plot ground truth samples
     if D1_gt_samples is not None:
         plt.plot(
-            D1_gt_samples[:, dim0], 
-            D1_gt_samples[:, dim1], 
-            '.', 
-            label='D1', 
-            markersize=markersize, 
+            D1_gt_samples[:, dim0],
+            D1_gt_samples[:, dim1],
+            '.',
+            label='D1',
+            markersize=markersize,
             alpha=alpha_gt_points
         )
-    
+
     # Plot initial points from trajectories
     plt.plot(
-        xtraj[0][:, dim0], 
-        xtraj[0][:, dim1], 
-        '.', 
-        label='D0', 
-        markersize=markersize, 
+        xtraj[0][:, dim0],
+        xtraj[0][:, dim1],
+        '.',
+        label='D0',
+        markersize=markersize,
         alpha=alpha_gt_points
     )
-    
+
     # Plot generated points
     plt.plot(
-        xtraj[-1][:, dim0], 
-        xtraj[-1][:, dim1], 
-        'r.', 
-        label='Generated', 
-        markersize=markersize, 
+        xtraj[-1][:, dim0],
+        xtraj[-1][:, dim1],
+        'r.',
+        label='Generated',
+        markersize=markersize,
         alpha=alpha_generated_points
     )
-    
+
     # Plot trajectory lines
-    for i in range(min(num_trajectories, xtraj.shape[0])):
+    for i in range(min(num_trajectories, xtraj.shape[1])):
         plt.plot(
-            xtraj[:, i, dim0], 
-            xtraj[:, i, dim1], 
-            '--g', 
+            xtraj[:, i, dim0],
+            xtraj[:, i, dim1],
+            '--g',
             alpha=alpha_trajectories
         )
-    
+
     # Add legend and adjust layout
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    if show_legend:
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.xlabel(f'Dimension {dim0}')
     plt.ylabel(f'Dimension {dim1}')
     plt.title('2D Trajectories Visualization')
     plt.tight_layout()
-    plt.show()
 
 
 def set_seed(seed: int):

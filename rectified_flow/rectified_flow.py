@@ -186,7 +186,16 @@ class RectifiedFlow:
         # vt_sde =vt * (1+et) - et * dot_at / at * xt
         # sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
         return vt_sde, sigma_t
+    
+    def match_dim_with_data(
+        self,
+        t: torch.Tensor | float | List[float],
+        X_shape: tuple,
+        expand_dim: bool = True,
+    ):
+        return match_dim_with_data(t, X_shape, device=self.device, dtype=self.dtype, expand_dim=expand_dim)
 
+    @property
     def is_pi0_zero_mean_gaussian(self):
         """Check if pi0 is a zero-mean Gaussian distribution."""
         if callable(self.pi_0): return True # NOTE: fix this
@@ -201,14 +210,7 @@ class RectifiedFlow:
         )
         return is_multivariate_normal or is_normal
     
-    def match_dim_with_data(
-        self,
-        t: torch.Tensor | float | List[float],
-        X_shape: tuple,
-        expand_dim: bool = True,
-    ):
-        return match_dim_with_data(t, X_shape, device=self.device, dtype=self.dtype, expand_dim=expand_dim)
-
+    @property
     def is_pi0_standard_gaussian(self):
         """Check if pi0 is a standard Gaussian distribution."""
         is_multivariate_normal = (
