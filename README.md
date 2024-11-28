@@ -6,6 +6,7 @@
 
 ____________________________________________________________
 
+
 **Rectified Flows** is a repository that presents a unified and minimal codebase for implementing various diffusion and flow models.
 
 ---
@@ -28,6 +29,7 @@ ____________________________________________________________
 
 Please run the following commands in the given order to install the dependency.
 
+
 ```
 conda create -n rf python=3.10
 conda activate rf
@@ -48,11 +50,13 @@ pip install -e .
 
 ## CIFAR-10
 
+
 ```shell
 todo
 ```
 
 ## ImageNet
+
 
 ```shell
 todo
@@ -60,6 +64,8 @@ todo
 
 
 # Sampling
+
+
 
 ```shell
 todo
@@ -71,3 +77,4 @@ todo
 | --------- | ------------------------------------------------------------ |
 | Codebase  | [MIT License](LICENSE)                                       |
 | Datasets  | [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/legalcode) |
+
