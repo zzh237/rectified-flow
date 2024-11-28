@@ -24,7 +24,7 @@ class RectifiedFlow:
         data_shape: tuple,
         model: nn.Module,
         interp: AffineInterp | str = "straight",
-        source_distribution: torch.distributions.Distribution | str = "normal" | Callable,
+        source_distribution: torch.distributions.Distribution | str | Callable = "normal",
         is_independent_coupling: bool = True,
         train_time_distribution: TrainTimeSampler | str = "uniform",
         train_time_weight: TrainTimeWeight | str = "uniform",
@@ -53,7 +53,17 @@ class RectifiedFlow:
         )
         
         self.pi_0 = source_distribution
-        if self.pi_0 == "normal": self.pi_0 = dist.Normal(0, 1).expand(data_shape)
+        if self.pi_0 == "normal": 
+            self.pi_0 = dist.Normal(
+                torch.tensor(0, device=device, dtype=dtype),
+                torch.tensor(1, device=device, dtype=dtype)
+            ).expand(data_shape)
+        else:
+            if isinstance(self.pi_0, dist.Distribution):
+                if self.pi_0.mean.device != device or self.pi_0.stddev.device != device:
+                    warnings.warn("Source distribution device does not match the model device.")
+                if self.pi_0.mean.dtype != dtype or self.pi_0.stddev.dtype != dtype:
+                    warnings.warn("Source distribution dtype does not match the model dtype.")
 
         self.independent_coupling = is_independent_coupling
 
@@ -73,29 +83,29 @@ class RectifiedFlow:
 
     def get_interpolation(
         self,
-        X_0: torch.Tensor,
-        X_1: torch.Tensor,
+        x_0: torch.Tensor,
+        x_1: torch.Tensor,
         t: torch.Tensor,
     ):
         """
         Compute the interpolated values X_t and dot_Xt at time t
 
         Args:
-            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn)
-            X_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
+            x_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn)
+            x_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
             t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_dim_with_data
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: X_t, dot_Xt, both of shape (B, D) or (B, D1, D2, ..., Dn)
+            Tuple[torch.Tensor, torch.Tensor]: x_t, dot_x_t, both of shape (B, D) or (B, D1, D2, ..., Dn)
         """
-        assert X_0.shape == X_1.shape, "X_0 and X_1 must have the same shape."
-        assert X_0.shape[0] == X_1.shape[0], "Batch size of X_0 and X_1 must match."
-        X_t, dot_Xt = self.interp.forward(X_0, X_1, t, detach=True)
-        return X_t, dot_Xt
+        assert x_0.shape == x_1.shape, "x_0 and x_1 must have the same shape."
+        assert x_0.shape[0] == x_1.shape[0], "Batch size of X_0 and X_1 must match."
+        x_t, dot_x_t = self.interp.forward(x_0, x_1, t, detach=True)
+        return x_t, dot_x_t
 
     def get_velocity(
         self,
-        X: torch.Tensor,
+        x_t: torch.Tensor,
         t: torch.Tensor,
         **kwargs,
     ):
@@ -104,21 +114,20 @@ class RectifiedFlow:
         Decouples velocity computation from the model forward pass, handle t transformation, etc.
 
         Args:
-            X (torch.Tensor): X_t, shape (B, D) or (B, D1, D2, ..., Dn)
+            x_t (torch.Tensor): X_t, shape (B, D) or (B, D1, D2, ..., Dn)
             t (torch.Tensor): Time tensor, shape (B,), in [0, 1], no need for match_dim_with_data
 
         Returns:
             torch.Tensor: Velocity tensor, same shape as X
         """
-        assert X.shape[0] == t.shape[0] and t.ndim == 1, "Batch size of X and t must match."
-        # NOTE: May do t / velocity transformation, e.g. t = 1 - t, velocity = -velocity
-        velocity = self.model(X, t, **kwargs)
+        assert x_t.shape[0] == t.shape[0] and t.ndim == 1, "Batch size of x_t and t must match."
+        velocity = self.model(x_t, t, **kwargs)
         return velocity
     
     def get_loss(
         self,
-        X_0: torch.Tensor | None,
-        X_1: torch.Tensor,
+        x_0: torch.Tensor | None,
+        x_1: torch.Tensor,
         t: torch.Tensor | None = None,
         **kwargs,
     ):
@@ -126,68 +135,74 @@ class RectifiedFlow:
         Compute the loss of the flow model(X_t, t)
 
         Args:
-            X_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn), can be None
+            x_0 (torch.Tensor): X_0, shape (B, D) or (B, D1, D2, ..., Dn), can be None
                                 Must be provided to avoid ambiguity in passing arguments
-            X_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
+            x_1 (torch.Tensor): X_1, shape (B, D) or (B, D1, D2, ..., Dn)
             t (torch.Tensor): Time tensor, shape (B,), in [0, 1], optional
             **kwargs: Additional keyword arguments for the model input
 
         Returns:
             torch.Tensor: Loss tensor, scalar
         """
-        if X_1.device != self.device:
-            X_1 = X_1.to(self.device)
-            warnings.warn("X_1 moved to device of the model.")
+        t = self.sample_train_time(x_1.shape[0]) if t is None else t
+        x_0 = self.sample_source_distribution(x_1.shape[0]) if x_0 is None else x_0
 
-        if X_1.dtype != self.dtype:
-            X_1 = X_1.to(self.dtype)
-            warnings.warn("X_1 moved to dtype of the model.")
+        x_t, dot_x_t = self.get_interpolation(x_0, x_1, t)
+        v_t = self.get_velocity(x_t, t, **kwargs)
+        time_weights = self.train_time_weight(t)
 
-        t = self.sample_train_time(X_1.shape[0]) if t is None else t
-        X_0 = self.sample_source_distribution(X_1.shape[0]) if X_0 is None else X_0
+        return self.criterion(v_t, dot_x_t, x_t, t, time_weights)
 
-        X_t, dot_Xt = self.get_interpolation(X_0, X_1, t)
-        v_t = self.get_velocity(X_t, t, **kwargs)
-        wts = self.train_time_weight(t)
-
-        return self.criterion(v_t, dot_Xt, X_t, t, wts)
-
-    def get_score_function_from_velocity(self, Xt, vt, t):
-        # pi_0 (source distribution) must ~ Normal(0,I), Dlogpt(Xt) = -E[X0 | Xt] / bt
+    def get_score_function_from_velocity(self, x_t, v_t, t):
+        # pi_0 (source distribution) must ~ Normal(0,I), Dlogpt(X_t) = -E[X_0|X_t]/bt
         self.assert_canonical()
-        self.interp.solve(t=t, xt=Xt, dot_xt=vt)
-        dlogp = - self.interp.x0/self.interp.bt
+        self.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
+        dlogp = - self.interp.x0 / self.interp.bt
         return dlogp
 
-    def get_score_function(self, Xt, t, **kwargs):
+    def get_score_function(self, x_t, t, **kwargs):
         self.assert_canonical()
-        vt = self.get_velocity(Xt, t, **kwargs)
-        return self.get_score_function_from_velocity(Xt, vt, t)
+        v_t = self.get_velocity(x_t, t, **kwargs)
+        return self.get_score_function_from_velocity(x_t, v_t, t)
 
-    def get_sde_params_by_sigma(self, vt, xt, t, sigma):
-        # SDE coeffs for dX = vt(Xt) + sigma_t^2*Dlogp(Xt) + sqrt(2)*sigma_t*dWt
+    def get_sde_params_by_sigma(self, v_t, x_t, t, sigma):
+        # SDE coeffs for dX_t = v_t(X_t) + sigma_t^2*Dlogp(X_t) + sqrt(2)*sigma_t*dWt
         self.assert_canonical()
         sigma_t = sigma(t)
-        self.interp.solve(t=t, xt=xt, dot_xt=vt)
-        dlogp = - self.interp.x0/self.interp.bt
-        vt_sde = vt + sigma_t**2 * dlogp
-        return vt_sde, sigma_t * 2**0.5
+        self.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
+        dlogp = - self.interp.x0 / self.interp.bt
+        v_t_sde = v_t + sigma_t**2 * dlogp
+        return v_t_sde, sigma_t * 2**0.5
     
-    def get_stable_sde_params(self, vt, xt, t, e):
-        # From SDE coeffs for dX = vt(Xt) -sigma_t^2*E[X0|Xt]/bt + sqrt(2)*sigma_t*dWt,
+    def get_stable_sde_params(self, v_t, x_t, t, e):
+        # From SDE coeffs for dX = v_t(Xt) -sigma_t^2*E[X0|Xt]/bt + sqrt(2)*sigma_t*dWt,
         # let et^2 = sigmat^2/bt, we have sigmat = sqrt(bt) * et, we have:
-        # dX = vt(Xt) - et^2*E[X0|Xt]+ sqrt(2*bt) * et *dWt
+        # dX = v_t(Xt) - et^2*E[X0|Xt]+ sqrt(2*bt) * et *dWt
         self.assert_canonical()
-        self.interp.solve(t=t, xt=xt, dot_xt=vt)
-        et = e(self.match_dim_with_data(t, xt.shape, device=xt.device, dtype=xt.dtype))
+        self.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
+        et = e(self.match_dim_with_data(t, x_t.shape, device=x_t.device, dtype=x_t.dtype))
         x0_pred  = - self.interp.x0/self.interp.bt
-        vt_sde = vt - x0_pred * et**2
+        v_t_sde = v_t - x0_pred * et**2
         sigma_t = et * self.interp.bt**0.5 * (2**0.5)
         # at, bt, dot_at, dot_bt = self.interp.get_coeffs(t)
-        # vt_sde =vt * (1+et) - et * dot_at / at * xt
+        # v_t_sde =v_t * (1+et) - et * dot_at / at * xt
         # sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
-        return vt_sde, sigma_t
+        return v_t_sde, sigma_t
+    
+    def match_dim_with_data(
+        self,
+        t: torch.Tensor | float | List[float],
+        x_shape: tuple,
+        expand_dim: bool = True,
+    ):
+        return match_dim_with_data(t, x_shape, device=self.device, dtype=self.dtype, expand_dim=expand_dim)
 
+    @property
+    def is_pi0_guassian(self):
+        """Check if pi0 is a Gaussian distribution."""
+        return isinstance(self.pi_0, dist.Normal) or isinstance(self.pi_0, dist.MultivariateNormal)
+
+    @property
     def is_pi0_zero_mean_gaussian(self):
         """Check if pi0 is a zero-mean Gaussian distribution."""
         if callable(self.pi_0): return True # NOTE: fix this
@@ -202,14 +217,7 @@ class RectifiedFlow:
         )
         return is_multivariate_normal or is_normal
     
-    def match_dim_with_data(
-        self,
-        t: torch.Tensor | float | List[float],
-        X_shape: tuple,
-        expand_dim: bool = True,
-    ):
-        return match_dim_with_data(t, X_shape, device=self.device, dtype=self.dtype, expand_dim=expand_dim)
-
+    @property
     def is_pi0_standard_gaussian(self):
         """Check if pi0 is a standard Gaussian distribution."""
         is_multivariate_normal = (

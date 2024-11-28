@@ -9,21 +9,21 @@ from rectified_flow.utils import match_dim_with_data
 class AffineInterpSolver:
     """
     Symbolic solver for the equations:
-        xt = at * x1 + bt * x0
-        dot_xt = dot_at * x1 + dot_bt * x0
+        x_t = a_t * x_1 + b_t * x_0
+        dot_x_t = dot_a_t * x_1 + dot_b_t * x_0
     Given known variables and unknowns set as None, the solver computes the unknowns.
     """
     def __init__(self):
         # Define symbols
-        x0, x1, xt, dot_xt = sympy.symbols('x0 x1 xt dot_xt')
-        at, bt, dot_at, dot_bt = sympy.symbols('at bt dot_at dot_bt')
+        x_0, x_1, x_t, dot_x_t = sympy.symbols('x_0 x_1 x_t dot_x_t')
+        a_t, b_t, dot_a_t, dot_b_t = sympy.symbols('a_t b_t dot_a_t dot_b_t')
         
         # Equations
-        eq1 = sympy.Eq(xt, at * x1 + bt * x0)
-        eq2 = sympy.Eq(dot_xt, dot_at * x1 + dot_bt * x0)
+        eq1 = sympy.Eq(x_t, a_t * x_1 + b_t * x_0)
+        eq2 = sympy.Eq(dot_x_t, dot_a_t * x_1 + dot_b_t * x_0)
         
         # Variables to solve for
-        variables = [x0, x1, xt, dot_xt]
+        variables = [x_0, x_1, x_t, dot_x_t]
         self.symbolic_solvers = {}
         
         # Create symbolic solvers for all pairs of unknown variables
@@ -39,7 +39,7 @@ class AffineInterpSolver:
                     expr1 = solution[unknown1]
                     expr2 = solution[unknown2]
                     func = sympy.lambdify(
-                        [x0, x1, xt, dot_xt, at, bt, dot_at, dot_bt],
+                        [x_0, x_1, x_t, dot_x_t, a_t, b_t, dot_a_t, dot_b_t],
                         [expr1, expr2],
                         modules="numpy"
                     )
@@ -48,26 +48,26 @@ class AffineInterpSolver:
                     self.symbolic_solvers[var_names] = func
 
     def solve(self, results):
-        known_vars = {k: getattr(results, k) for k in ['x0', 'x1', 'xt', 'dot_xt'] if getattr(results, k) is not None}
-        unknown_vars = {k: getattr(results, k) for k in ['x0', 'x1', 'xt', 'dot_xt'] if getattr(results, k) is None}
+        known_vars = {k: getattr(results, k) for k in ['x_0', 'x_1', 'x_t', 'dot_x_t'] if getattr(results, k) is not None}
+        unknown_vars = {k: getattr(results, k) for k in ['x_0', 'x_1', 'x_t', 'dot_x_t'] if getattr(results, k) is None}
         unknown_keys = tuple(unknown_vars.keys())
 
         if len(unknown_keys) > 2:
-            raise ValueError("At most two variables among (x0, x1, xt, dot_xt) can be unknown.")
+            raise ValueError("At most two variables among (x_0, x_1, x_t, dot_x_t) can be unknown.")
         elif len(unknown_keys) == 0:
             return results
         elif len(unknown_keys) == 1:
             # Select one known variable to make up the pair
-            for var in ['x0', 'x1', 'xt', 'dot_xt']:
+            for var in ['x_0', 'x_1', 'x_t', 'dot_x_t']:
                 if var in known_vars:
                     unknown_keys.append(var)
                     break
 
         func = self.symbolic_solvers.get(unknown_keys)
 
-        # Prepare arguments in the order [x0, x1, xt, dot_xt, at, bt, dot_at, dot_bt]
+        # Prepare arguments in the order [x_0, x_1, x_t, dot_x_t, a_t, b_t, dot_a_t, dot_b_t]
         args = []
-        for var in ['x0', 'x1', 'xt', 'dot_xt', 'at', 'bt', 'dot_at', 'dot_bt']:
+        for var in ['x_0', 'x_1', 'x_t', 'dot_x_t', 'a_t', 'b_t', 'dot_a_t', 'dot_b_t']:
             value = getattr(results, var, None)
             if value is None:
                 value = 0  # Placeholder for unknowns
@@ -127,14 +127,14 @@ class AffineInterp(nn.Module):
         else: self.dot_beta = None 
 
         self.solver = AffineInterpSolver()
-        self.at = None
-        self.bt = None
-        self.dot_at = None
-        self.dot_bt = None
-        self.x0 = None
-        self.x1 = None
-        self.xt = None
-        self.dot_xt = None
+        self.a_t = None
+        self.b_t = None
+        self.dot_a_t = None
+        self.dot_b_t = None
+        self.x_0 = None
+        self.x_1 = None
+        self.x_t = None
+        self.dot_x_t = None
 
     @staticmethod
     def ensure_tensor(x):
@@ -153,43 +153,43 @@ class AffineInterp(nn.Module):
 
     def get_coeffs(self, t, detach=True):
         if self.dot_alpha is None:
-            at, dot_at = self.value_and_grad(self.alpha, t, detach=detach)
+            a_t, dot_a_t = self.value_and_grad(self.alpha, t, detach=detach)
         else:
-            at = self.alpha(t)
-            dot_at = self.dot_alpha(t)
+            a_t = self.alpha(t)
+            dot_a_t = self.dot_alpha(t)
         if self.dot_beta is None:
-            bt, dot_bt = self.value_and_grad(self.beta, t, detach=detach)
+            b_t, dot_b_t = self.value_and_grad(self.beta, t, detach=detach)
         else:
-            bt = self.beta(t)
-            dot_bt = self.dot_beta(t)
-        self.at = at
-        self.bt = bt
-        self.dot_at = dot_at
-        self.dot_bt = dot_bt
-        return at, bt, dot_at, dot_bt
+            b_t = self.beta(t)
+            dot_b_t = self.dot_beta(t)
+        self.a_t = a_t
+        self.b_t = b_t
+        self.dot_a_t = dot_a_t
+        self.dot_b_t = dot_b_t
+        return a_t, b_t, dot_a_t, dot_b_t
 
-    def forward(self, X0, X1, t, detach=True):
-        t = match_dim_with_data(t, X1.shape, device=X1.device, dtype=X1.dtype)
+    def forward(self, x_0, x_1, t, detach=True):
+        t = match_dim_with_data(t, x_1.shape, device=x_1.device, dtype=x_1.dtype)
         a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t, detach=detach)
-        Xt = a_t * X1 + b_t * X0
-        dot_Xt = dot_a_t * X1 + dot_b_t * X0
-        return Xt, dot_Xt
+        x_t = a_t * x_1 + b_t * x_0
+        dot_x_t = dot_a_t * x_1 + dot_b_t * x_0
+        return x_t, dot_x_t
 
-    def solve(self, t=None, x0=None, x1=None, xt=None, dot_xt=None):
+    def solve(self, t=None, x_0=None, x_1=None, x_t=None, dot_x_t=None):
         """
-        Solve equation: xt = at*x1+bt*x0, dot_xt = dot_at*x1+dot_bt*x0
+        Solve equation: x_t = a_t*x_1+b_t*x_0, dot_x_t = dot_a_t*x_1+dot_b_t*x_0
         Set any of the known variables, and keep the unknowns as None; the solver will fill the unknowns.
-        Example: interp.solve(t, xt=xt, dot_xt=dot_xt); print(interp.x1.shape), print(interp.x0.shape)
+        Example: interp.solve(t, x_t=x_t, dot_x_t=dot_x_t); print(interp.x_1.shape), print(interp.x_0.shape)
         """
         if t is None:
             raise ValueError("t must be provided")
-        self.x0 = x0
-        self.x1 = x1
-        self.xt = xt
-        self.dot_xt = dot_xt
-        x_not_none = next((v for v in [x0, x1, xt, dot_xt] if v is not None), None)
+        self.x_0 = x_0
+        self.x_1 = x_1
+        self.x_t = x_t
+        self.dot_x_t = dot_x_t
+        x_not_none = next((v for v in [x_0, x_1, x_t, dot_x_t] if v is not None), None)
         if x_not_none is None:
-            raise ValueError("At least two of x0, x1, xt, dot_xt must not be None")
+            raise ValueError("At least two of x_0, x_1, x_t, dot_x_t must not be None")
         t = match_dim_with_data(t, x_not_none.shape, device=x_not_none.device, dtype=x_not_none.dtype)
-        at, bt, dot_at, dot_bt = self.get_coeffs(t)
+        a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t)
         self.solver.solve(self)

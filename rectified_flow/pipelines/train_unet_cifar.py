@@ -21,7 +21,7 @@ from diffusers.optimization import get_scheduler
 from torchvision import transforms
 from tqdm.auto import tqdm
 
-from rectified_flow.models.dit import DiT, DiTConfig
+from rectified_flow.models.unet import SongUNet, SongUNetConfig
 from rectified_flow.rectified_flow import RectifiedFlow
 
 logger = get_logger(__name__)
@@ -42,13 +42,13 @@ class EMAModel:
                 self.shadow[name] = param.data.clone()
                 print(f"Warning: EMA shadow does not contain parameter {name}")
 
-    def save_pretrained(self, save_directory: str, filename: str = "dit"):
+    def save_pretrained(self, save_directory: str, filename: str = "unet"):
         state_dict_cpu = {k: v.cpu() for k, v in self.shadow.items()}
         output_model_file = os.path.join(save_directory, f"{filename}_ema.pt")
         torch.save(state_dict_cpu, output_model_file)
         print(f"Model weights saved to {output_model_file}")
 
-    def load_pretrained(self, save_directory: str, filename: str = "dit"):
+    def load_pretrained(self, save_directory: str, filename: str = "unet"):
         output_model_file = os.path.join(save_directory, f"{filename}_ema.pt")
         if os.path.exists(output_model_file):
             state_dict = torch.load(output_model_file, map_location='cpu')
@@ -126,7 +126,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="./reshaper-dit",
+        default="./output",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -340,20 +340,12 @@ def main(args):
     # 1.1 Prepare models
     logger.info("******  preparing models  ******")
 
-    DiT_config = DiTConfig(
-        input_size = args.resolution,
-        patch_size = 2,
-        in_channels = 3,
-        out_channels = 3,
-        hidden_size = 512,
-        depth = 13,
-        num_heads = 8,
-        mlp_ratio = 4,
-        num_classes = 0,
-        use_long_skip = True,
-        final_conv = False,
+    UNet_config = SongUNetConfig(
+        img_resolution=args.resolution,
+        in_channels=3,
+        out_channels=3,
     )
-    model = DiT(DiT_config)
+    model = SongUNet(UNet_config)
     
     model.to(accelerator.device, dtype=weight_dtype)
     model.train().requires_grad_(True)
@@ -418,9 +410,9 @@ def main(args):
     def save_model_hook(models, weights, output_dir):
         if accelerator.is_main_process:
             for i, model in enumerate(models):
-                if isinstance(accelerator.unwrap_model(model), DiT):
+                if isinstance(accelerator.unwrap_model(model), SongUNet):
                     unwrap_model = accelerator.unwrap_model(model)
-                    unwrap_model.save_pretrained(output_dir, filename="dit")
+                    unwrap_model.save_pretrained(output_dir, filename="unet")
                 else:
                     raise ValueError(f"Wrong model supplied: {type(model)=}.")
 
@@ -431,8 +423,8 @@ def main(args):
             model = models.pop()
             print(type(model)) 
 
-            if isinstance(accelerator.unwrap_model(model), DiT):
-                load_model = DiT.from_pretrained(input_dir, filename="dit")
+            if isinstance(accelerator.unwrap_model(model), SongUNet):
+                load_model = SongUNet.from_pretrained(input_dir, filename="unet")
                 model.load_state_dict(load_model.state_dict())
             else:
                 raise ValueError(f"Wrong model supplied: {type(model)=}.")
@@ -569,7 +561,7 @@ def main(args):
                         logger.info(f"Saved state to {save_path}")
 
                         if args.use_ema:
-                            model_ema.save_pretrained(save_path, filename="dit")
+                            model_ema.save_pretrained(save_path, filename="unet")
                             logger.info(f"Saved EMA model to {save_path}")
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}

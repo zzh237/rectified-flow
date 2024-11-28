@@ -19,17 +19,17 @@ class OverShootingSampler(Sampler):
             raise ValueError("Invalid overshooting method provided. Must be a string or callable.")
 
         # Ensure rf meets required conditions
-        if not (self.rectified_flow.is_pi0_zero_mean_gaussian() and self.rectified_flow.independent_coupling):
+        if not (self.rectified_flow.is_pi0_zero_mean_gaussian and self.rectified_flow.independent_coupling):
             raise ValueError(
                 "pi0 must be a zero-mean Gaussian distribution, and the coupling must be independent."
             )
 
     def step(self, **model_kwargs):
         """Perform a single overshooting step."""
-        t, t_next, X_t = self.t, self.t_next, self.X_t
+        t, t_next, x_t = self.t, self.t_next, self.x_t
         v_t = self.get_velocity(**model_kwargs)
         dtype = v_t.dtype
-        X_t = X_t.to(torch.float32)
+        x_t = x_t.to(torch.float32)
         v_t = v_t.to(torch.float32)
 
         alpha = self.rectified_flow.interp.alpha
@@ -41,13 +41,13 @@ class OverShootingSampler(Sampler):
             raise ValueError("t_overshoot cannot be smaller than t_next.")
 
         # Advance to t_overshoot using ODE
-        X_t_overshoot = X_t + (t_overshoot - t) * v_t
+        x_t_overshoot = x_t + (t_overshoot - t) * v_t
 
         # Apply noise to step back to t_next
-        at = alpha(t_next) / alpha(t_overshoot)
-        bt = (beta(t_next)**2 - (at * beta(t_overshoot))**2)**0.5
+        a_t = alpha(t_next) / alpha(t_overshoot)
+        b_t = (beta(t_next)**2 - (a_t * beta(t_overshoot))**2)**0.5
         noise = self.rectified_flow.sample_source_distribution(self.num_samples)
         noise = noise.to(torch.float32)
 
-        self.X_t = X_t_overshoot * at + noise * bt
-        self.X_t = self.X_t.to(dtype)
+        self.x_t = x_t_overshoot * a_t + noise * b_t
+        self.x_t = self.x_t.to(dtype)

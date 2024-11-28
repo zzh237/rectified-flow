@@ -14,7 +14,6 @@ class FluxWrapper:
         width: int,
         dtype: torch.dtype,
         device: torch.device,
-        seed: int = 0,
     ):
         """
         Initializes the FluxWrapper with the necessary components.
@@ -32,10 +31,9 @@ class FluxWrapper:
             width = 16 * (width // 16)
             warnings.warn(f"Height and width must be divisible by 16. Adjusted to {height}x{width}.")
         self.height, self.width = height, width
-        self.data_shape = (16, height // 8, width // 8)
+        self.vae_latent_shape = (16, height // 8, width // 8) # C', H', W'
+        self.packed_latent_shape = (height // 16 * width // 16, 16 * 4) # T, C, used for pi_0 generation
         self.image_seq_len = (height // 16) * (width // 16)
-
-        self.generator = torch.Generator(device=device).manual_seed(seed)
 
         self.dtype = dtype
         self.device = device
@@ -45,41 +43,6 @@ class FluxWrapper:
         self.prompt_embeds = None
         self.pooled_prompt_embeds = None
         self.text_ids = None
-
-    def sample_source_distribution(
-        self,
-        batch_size: int,
-        vae_latents: torch.Tensor | None = None,
-    ):
-        # VAE applies 8x compression on images but we must also account for packing which requires
-        # latent height and width to be divisible by 2.
-        height = self.height // 8
-        width = self.width // 8
-
-        # VAE latent channels = 16, VAE latent resolution = resolution // 8
-        # shape [num_samples, 16, resolution // 8, resolution // 8]
-        shape = (batch_size, 16, height, width)
-        # print("VAE compressed shape = ", shape)
-
-        # num of tokens = (resolution // 8 * resolution // 8) / 4
-        # shape [num_samples, (resolution // 8 * resolution // 8) / 4,  3]
-        if vae_latents is not None:
-            assert vae_latents.shape[0] == batch_size, "Batch size must match the number of samples."
-            assert vae_latents.shape[1] == shape[1], "Number of channels must match the VAE latent channels."
-            assert vae_latents.shape[2] == shape[2], "Height must match the VAE latent height."
-            assert vae_latents.shape[3] == shape[3], "Width must match the VAE latent width."
-        else:
-            vae_latents = torch.randn(shape, generator=self.generator, device=self.device, dtype=self.dtype)
-
-        # After packing, shape [num_samples, (resolution // 16 * resolution // 16), 16 * 2 * 2]
-        packed_latents = _pack_latents(vae_latents, batch_size, 16, height, width)
-        # print("Packed latents shape = ", packed_latents.shape)
-
-        latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, self.device, self.dtype)
-        self.latent_image_ids = latent_image_ids
-        # print("Latent image ids shape = ", latent_image_ids.shape)
-
-        return packed_latents
     
     def prepare_time_grid(
         self,
@@ -97,7 +60,7 @@ class FluxWrapper:
     
     def __call__(
         self, 
-        X_t: Tensor,
+        x_t: Tensor,
         t: torch.Tensor,
         prompt: str | None = None,
         guidance_scale: float = 3.5,
@@ -108,7 +71,7 @@ class FluxWrapper:
         Computes the flux velocity for a given latent state and time.
 
         Args:
-            X_t: The packed latent variables at time t.
+            x_t: The packed latent variables at time t.
             t: The time in RF ODE, which will be converted to Flux's time (1 - t).
             prompt (str, optional): The text prompt. Defaults to empty string.
             guidance_scale (float, optional): The guidance scale. Defaults to 0.0.
@@ -119,22 +82,26 @@ class FluxWrapper:
         Returns:
             Tensor: The negative flux velocity.
         """
-        if X_t.device != self.device:
-            X_t = X_t.to(device=self.device)
-            warnings.warn(f"X_t was moved to the device {self.device} of the FluxWrapper.")
+        if x_t.device != self.device:
+            x_t = x_t.to(device=self.device)
+            warnings.warn(f"x_t was moved to the device {self.device} of the FluxWrapper.")
 
-        if X_t.dtype != self.dtype:
-            X_t = X_t.to(dtype=self.dtype)
-            warnings.warn(f"X_t was casted to the dtype {self.dtype} of the FluxWrapper.")
+        if x_t.dtype != self.dtype:
+            x_t = x_t.to(dtype=self.dtype)
+            warnings.warn(f"x_t was casted to the dtype {self.dtype} of the FluxWrapper.")
 
         # Convert ODE time t to Flux time 1 - t
         t_vec = 1.0 - t 
-        assert isinstance(t_vec, torch.Tensor) and t_vec.ndim == 1 and t.shape[0] == X_t.shape[0], \
+        assert isinstance(t_vec, torch.Tensor) and t_vec.ndim == 1 and t.shape[0] == x_t.shape[0], \
             "Time vector must be a 1D tensor with the same length as the batch size."
+        
+        # Prepare latent image ids
+        latent_image_ids = _prepare_latent_image_ids(x_t.shape[0], self.vae_latent_shape[1], 
+                                                     self.vae_latent_shape[2], self.device, self.dtype)
 
         # Prepare guidance vector
         guidance_vec = torch.full(
-            (X_t.shape[0],),
+            (x_t.shape[0],),
             guidance_scale,
             device=self.device,
             dtype=self.dtype
@@ -160,13 +127,13 @@ class FluxWrapper:
                     print(f"Prompt {prompt} encoded.")
 
         flux_velocity = self.pipeline.transformer(
-            hidden_states=X_t,
+            hidden_states=x_t,
             timestep=t_vec,
             guidance=guidance_vec,
             pooled_projections=self.pooled_prompt_embeds,
             encoder_hidden_states=self.prompt_embeds,
             txt_ids=self.text_ids,
-            img_ids=self.latent_image_ids,
+            img_ids=latent_image_ids,
             joint_attention_kwargs=None,
             return_dict=self.pipeline,
         )[0]
@@ -175,7 +142,7 @@ class FluxWrapper:
 
         return flux_velocity
     
-    def decode(
+    def unpack_and_decode(
         self,
         packed_latents: Tensor, 
     ):  
@@ -201,6 +168,45 @@ def encode_imgs(imgs, pipeline, dtype):
     latents = (latents - pipeline.vae.config.shift_factor) * pipeline.vae.config.scaling_factor
     latents = latents.to(dtype=dtype)
     return latents
+
+
+def get_packed_latent(
+        height,
+        width,
+        batch_size: int,
+        vae_latents: torch.Tensor | None = None,
+        generator: torch.Generator | None = None,
+        device: torch.device = torch.device("cpu"),
+        dtype: torch.dtype = torch.float32,
+    ):
+        # VAE applies 8x compression on images but we must also account for packing which requires
+        # latent height and width to be divisible by 2.
+        height = height // 8
+        width = width // 8
+
+        # VAE latent channels = 16, VAE latent resolution = resolution // 8
+        # shape [num_samples, 16, resolution // 8, resolution // 8]
+        shape = (batch_size, 16, height, width)
+        # print("VAE compressed shape = ", shape)
+
+        # num of tokens = (resolution // 8 * resolution // 8) / 4
+        # shape [num_samples, (resolution // 8 * resolution // 8) / 4,  3]
+        if vae_latents is not None:
+            assert vae_latents.shape[0] == batch_size, "Batch size must match the number of samples."
+            assert vae_latents.shape[1] == shape[1], "Number of channels must match the VAE latent channels."
+            assert vae_latents.shape[2] == shape[2], "Height must match the VAE latent height."
+            assert vae_latents.shape[3] == shape[3], "Width must match the VAE latent width."
+        else:
+            vae_latents = torch.randn(shape, generator=generator, device=device, dtype=dtype)
+
+        # After packing, shape [num_samples, (resolution // 16 * resolution // 16), 16 * 2 * 2]
+        packed_latents = _pack_latents(vae_latents, batch_size, 16, height, width)
+        # print("Packed latents shape = ", packed_latents.shape)
+
+        latent_image_ids = _prepare_latent_image_ids(batch_size, height, width, device, dtype)
+        # print("Latent image ids shape = ", latent_image_ids.shape)
+
+        return packed_latents, latent_image_ids
 
 
 def _pack_latents(latents, batch_size, num_channels_latents, height, width):
