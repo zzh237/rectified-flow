@@ -32,7 +32,7 @@ class FluxWrapper:
             warnings.warn(f"Height and width must be divisible by 16. Adjusted to {height}x{width}.")
         self.height, self.width = height, width
         self.vae_latent_shape = (16, height // 8, width // 8) # C', H', W'
-        self.packed_latent_shape = (height // 16, width // 16, 16 * 4) # T, C, used for pi_0 generation
+        self.packed_latent_shape = (height // 16 * width // 16, 16 * 4) # T, C, used for pi_0 generation
         self.image_seq_len = (height // 16) * (width // 16)
 
         self.dtype = dtype
@@ -94,6 +94,10 @@ class FluxWrapper:
         t_vec = 1.0 - t 
         assert isinstance(t_vec, torch.Tensor) and t_vec.ndim == 1 and t.shape[0] == x_t.shape[0], \
             "Time vector must be a 1D tensor with the same length as the batch size."
+        
+        # Prepare latent image ids
+        latent_image_ids = _prepare_latent_image_ids(x_t.shape[0], self.vae_latent_shape[1], 
+                                                     self.vae_latent_shape[2], self.device, self.dtype)
 
         # Prepare guidance vector
         guidance_vec = torch.full(
@@ -129,7 +133,7 @@ class FluxWrapper:
             pooled_projections=self.pooled_prompt_embeds,
             encoder_hidden_states=self.prompt_embeds,
             txt_ids=self.text_ids,
-            img_ids=self.latent_image_ids,
+            img_ids=latent_image_ids,
             joint_attention_kwargs=None,
             return_dict=self.pipeline,
         )[0]
