@@ -1,11 +1,6 @@
 <div align="center">
 
-
-# **Rectified Flows**
-
-____________________________________________________________
-
-![Alt text](assets/logo.png)
+<img src="assets/logo.png" alt="Logo" style="width: 300px;">
 
 </div>
 
