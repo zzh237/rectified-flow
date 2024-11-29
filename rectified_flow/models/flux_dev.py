@@ -149,7 +149,7 @@ class FluxWrapper:
         packed_latents = packed_latents.clone().to(device=self.device, dtype=self.dtype)
         assert packed_latents.shape[1] == self.image_seq_len, "Number of patches must match the image sequence length."
         assert packed_latents.shape[2] == 16 * 4, "Number of channels must match the VAE latent channels."
-        latents = _unpack_latents(packed_latents, self.height, self.width, self.pipeline.vae_scale_factor)
+        latents = _unpack_latents(packed_latents, self.height, self.width, vae_scale_factor=8)
         imgs = decode_imgs(latents, self.pipeline)[0]
         return imgs
     
@@ -281,6 +281,6 @@ def unpack_and_decode(
     height: int,
     width: int,  
 ):
-    latents = _unpack_latents(packed_latents, height, width, pipeline.vae_scale_factor)
+    latents = _unpack_latents(packed_latents, height, width, vae_scale_factor=8)
     imgs = decode_imgs(latents, pipeline)[0]
     return imgs
