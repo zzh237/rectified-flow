@@ -1,15 +1,33 @@
 import torch
 from .base_sampler import Sampler
-from rectified_flow.utils import match_dim_with_data
+from rectified_flow.rectified_flow import RectifiedFlow
+from typing import Callable
 
 
 class SDESampler(Sampler):
-    def __init__(self, noise_magnitude=lambda t: 1, noise_method='stable', ode_method='curved', **kwargs):
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        rectified_flow: RectifiedFlow,
+        num_steps: int | None = None,
+        time_grid: list[float] | torch.Tensor | None = None,
+        record_traj_period: int = 1,
+        callbacks: list[Callable] | None = None,
+        num_samples: int | None = None,
+        noise_magnitude: Callable = lambda t: 1,
+        noise_method: str = 'stable',
+        ode_method: str = 'curved',
+    ):
+        super().__init__(
+            rectified_flow, 
+            num_steps, 
+            time_grid, 
+            record_traj_period, 
+            callbacks, 
+            num_samples,
+        )
         self.noise_magnitude = noise_magnitude
         self.noise_method = noise_method
         self.ode_method = ode_method
-
         if not (self.rectified_flow.is_pi0_guassian and self.rectified_flow.independent_coupling):
             raise ValueError(
                 "pi_0 must be a standard Gaussian distribution, "
@@ -45,7 +63,7 @@ class SDESampler(Sampler):
             noise_std = (2 * beta_t * coeff) ** (0.5)
             langevin_term = -coeff * (x_0 - pi_0_mean) + noise_std * (noise - pi_0_mean)
 
-        # print(f"t = {t:.5f}, beta_t = {beta_t:.5f}, coeff = {coeff:.5f}, noise_std = {noise_std:.5f}")
+        # print(f"t = {t:.5f}, coeff = {coeff:.5f}, noise_std = {noise_std:.5f}")
 
         x_t_noised = x_t + langevin_term
 
