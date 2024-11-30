@@ -10,8 +10,6 @@ from typing import Callable
 
 
 class Sampler:
-    ODE_SAMPLING_STEP_LIMIT = 5000
-
     def __init__( # NOTE: consider using dataclass config
         self,
         rectified_flow: RectifiedFlow,
@@ -85,7 +83,6 @@ class Sampler:
         """Determines whether the sampling should stop."""
         return (
             self.t_next is None
-            or self.step_count >= self.ODE_SAMPLING_STEP_LIMIT
             or self.t >= 1.0 - 1e-6
         )
 
