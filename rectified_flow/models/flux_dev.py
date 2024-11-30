@@ -310,13 +310,7 @@ class FluxWrapper:
         Returns:
             Tensor: The DiT latents (packed latents). Shape [batch_size, image_seq_len, latent_dim].
         """
-        return _pack_latents(
-            vae_latents,
-            vae_latents.shape[0],
-            16,
-            vae_latents.shape[2],
-            vae_latents.shape[3]
-        )
+        return _pack_latents(vae_latents, vae_latents.shape[0], 16, vae_latents.shape[2], vae_latents.shape[3])
 
 
 def get_packed_latent(
