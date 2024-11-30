@@ -26,7 +26,7 @@ class NoiseRefreshSampler(Sampler):
         )
         self.noise_replacement_rate = noise_replacement_rate
         self.euler_method  = euler_method
-        assert (self.rectified_flow.independent_coupling and self.rectified_flow.is_pi0_zero_mean_gaussian), \
+        assert (self.rectified_flow.independent_coupling and self.rectified_flow.is_pi_0_zero_mean_gaussian), \
             'pi0 must be a zero mean gaussian and must use indepdent coupling'
 
     def step(self, **model_kwargs):
