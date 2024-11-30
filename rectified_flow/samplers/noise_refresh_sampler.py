@@ -1,13 +1,32 @@
 import torch
 from .base_sampler import Sampler
+from rectified_flow.rectified_flow import RectifiedFlow
+from typing import Callable
 
 
 class NoiseRefreshSampler(Sampler):
-    def __init__(self, noise_replacement_rate=lambda t: 0.5, euler_method = 'curved', **kwargs):
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        rectified_flow: RectifiedFlow,
+        num_steps: int | None = None,
+        time_grid: list[float] | torch.Tensor | None = None,
+        record_traj_period: int = 1,
+        callbacks: list[Callable] | None = None,
+        num_samples: int | None = None,
+        noise_replacement_rate: Callable = lambda t: 0.5, 
+        euler_method: str = 'curved',
+    ):
+        super().__init__(
+            rectified_flow, 
+            num_steps, 
+            time_grid, 
+            record_traj_period, 
+            callbacks, 
+            num_samples,
+        )
         self.noise_replacement_rate = noise_replacement_rate
         self.euler_method  = euler_method
-        assert (self.rectified_flow.independent_coupling and self.rectified_flow.is_pi0_zero_mean_gaussian), \
+        assert (self.rectified_flow.independent_coupling and self.rectified_flow.is_pi_0_zero_mean_gaussian), \
             'pi0 must be a zero mean gaussian and must use indepdent coupling'
 
     def step(self, **model_kwargs):

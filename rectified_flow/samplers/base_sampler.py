@@ -6,18 +6,17 @@ import matplotlib.pyplot as plt
 
 from rectified_flow.rectified_flow import RectifiedFlow
 from rectified_flow.utils import set_seed, match_dim_with_data
+from typing import Callable
 
 
 class Sampler:
-    ODE_SAMPLING_STEP_LIMIT = 5000
-
     def __init__( # NOTE: consider using dataclass config
         self,
         rectified_flow: RectifiedFlow,
         num_steps: int | None = None,
         time_grid: list[float] | torch.Tensor | None = None,
         record_traj_period: int = 1,
-        callbacks: list[callable] | None = None,
+        callbacks: list[Callable] | None = None,
         num_samples: int | None = None,
     ):
         self.rectified_flow = rectified_flow
@@ -84,7 +83,6 @@ class Sampler:
         """Determines whether the sampling should stop."""
         return (
             self.t_next is None
-            or self.step_count >= self.ODE_SAMPLING_STEP_LIMIT
             or self.t >= 1.0 - 1e-6
         )
 

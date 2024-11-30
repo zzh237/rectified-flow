@@ -3,7 +3,19 @@ import random
 import numpy as np
 import torchvision
 import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider
 
+
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed) 
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
 
 def match_dim_with_data(
     t: torch.Tensor | float | list[float],
@@ -155,22 +167,131 @@ def visualize_2d_trajectories(
     plt.tight_layout()
 
 
-def set_seed(seed: int):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed) 
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+from ipywidgets import interact, IntSlider
+
+def visualize_2d_trajectories_interactive(
+    trajectories_list: list[torch.Tensor],
+    D1_gt_samples: torch.Tensor = None,
+    num_trajectories: int = 50,
+    markersize: int = 3,
+    dimensions: list[int] = [0, 1],
+    alpha_trajectories: float = 0.5,
+    alpha_generated_points: float = 1.0,
+    alpha_gt_points: float = 1.0,
+    show_legend: bool = True,
+):
+    """
+    Plots 2D trajectories and points for visualization with an interactive slider for time t.
+
+    Parameters:
+        trajectories_list (list): List of trajectories to display.
+        D1_gt_samples (torch.Tensor, optional): Ground truth samples.
+        num_trajectories (int): Number of trajectories to display.
+        markersize (int): Size of the markers.
+        dimensions (list): Indices of the dimensions to plot.
+        alpha_trajectories (float): Transparency of trajectory lines.
+        alpha_generated_points (float): Transparency of generated points.
+        alpha_gt_points (float): Transparency of true points.
+        show_legend (bool): Whether to display the legend.
+    """
+    dim0, dim1 = dimensions
+
+    # Convert ground truth samples to NumPy if provided
+    if D1_gt_samples is not None:
+        D1_gt_samples = D1_gt_samples.clone().to(torch.float32).cpu().detach().numpy()
+
+    # Concatenate trajectories along batch dimension
+    traj_list_flat = [
+        traj.clone().to(torch.float32).detach().cpu()  # Shape: [time_steps, batch_size, dimension]
+        for traj in trajectories_list
+    ]
+
+    xtraj = torch.stack(traj_list_flat).numpy()  # Shape: [time_steps, total_batch_size, dimension]
+
+    time_steps = xtraj.shape[0]
+
+    # Precompute the trajectory lines
+    lines_data = []
+    num_points = xtraj.shape[1]
+    for i in range(min(num_trajectories, num_points)):
+        line_x = xtraj[:, i, dim0]
+        line_y = xtraj[:, i, dim1]
+        lines_data.append((line_x, line_y))
+
+    # Define the plotting function
+    def plot_at_t(t):
+        fig, ax = plt.subplots(dpi=100)
+
+        # Plot ground truth samples
+        if D1_gt_samples is not None:
+            ax.plot(
+                D1_gt_samples[:, dim0],
+                D1_gt_samples[:, dim1],
+                '.',
+                label='D1',
+                markersize=markersize,
+                alpha=alpha_gt_points
+            )
+
+        # Plot initial points from trajectories (at t=0)
+        ax.plot(
+            xtraj[0][:, dim0],
+            xtraj[0][:, dim1],
+            '.',
+            label='D0',
+            markersize=markersize,
+            alpha=alpha_gt_points
+        )
+
+        # Plot generated points at final time
+        ax.plot(
+            xtraj[-1][:, dim0],
+            xtraj[-1][:, dim1],
+            'r.',
+            label='Generated',
+            markersize=markersize,
+            alpha=alpha_generated_points
+        )
+
+        # Plot trajectory lines for num_trajectories
+        for line_x, line_y in lines_data:
+            ax.plot(
+                line_x,
+                line_y,
+                '--g',
+                alpha=alpha_trajectories
+            )
+
+        # Plot points at time t
+        t_int = int(t)
+        ax.plot(
+            xtraj[t_int][:, dim0],
+            xtraj[t_int][:, dim1],
+            'o',
+            label=f'step = {t_int}',
+            markersize=markersize,
+            color='blue'
+        )
+
+        # Add legend and labels
+        if show_legend:
+            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.set_xlabel(f'Dimension {dim0}')
+        ax.set_ylabel(f'Dimension {dim1}')
+        ax.set_title(f'2D Trajectories Visualization at step={t_int}')
+        plt.show()
+
+    # Create the interactive slider
+    interact(plot_at_t, t=IntSlider(min=0, max=time_steps - 1, step=1, value=0))
 
 
-def plot_cifar_results(images, nrow=10):
+def plot_cifar_results(images, nrow=10, title=None):
     images = (images.cpu().detach().clone() * 0.5 + 0.5).clamp(0, 1)
     grid = torchvision.utils.make_grid(images, nrow=nrow, padding=1, normalize=False)
     plt.figure(figsize=(10, (images.size(0) // nrow + 1) * 1.), dpi=300)
     np_grid = grid.permute(1, 2, 0).numpy()
     plt.imshow(np_grid)
     plt.axis('off')
+    if title is not None:
+        plt.title(title, fontsize=16) 
     plt.show()

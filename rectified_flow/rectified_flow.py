@@ -67,7 +67,7 @@ class RectifiedFlow:
 
         self.independent_coupling = is_independent_coupling
 
-        self.device = device
+        self.device = device  # auto infer
         self.dtype = dtype
 
     def sample_train_time(self, batch_size: int):
@@ -151,7 +151,13 @@ class RectifiedFlow:
         v_t = self.get_velocity(x_t, t, **kwargs)
         time_weights = self.train_time_weight(t)
 
-        return self.criterion(v_t, dot_x_t, x_t, t, time_weights)
+        return self.criterion(
+            v_t=v_t,
+            dot_x_t=dot_x_t,
+            x_t=x_t,
+            t=t,
+            time_weights=time_weights,
+        )
 
     def get_score_function_from_velocity(self, x_t, v_t, t):
         # pi_0 (source distribution) must ~ Normal(0,I), Dlogpt(X_t) = -E[X_0|X_t]/bt
@@ -198,13 +204,13 @@ class RectifiedFlow:
         return match_dim_with_data(t, x_shape, device=self.device, dtype=self.dtype, expand_dim=expand_dim)
 
     @property
-    def is_pi0_guassian(self):
-        """Check if pi0 is a Gaussian distribution."""
+    def is_pi_0_gaussian(self):
+        """Check if pi_0 is a Gaussian distribution."""
         return isinstance(self.pi_0, dist.Normal) or isinstance(self.pi_0, dist.MultivariateNormal)
 
     @property
-    def is_pi0_zero_mean_gaussian(self):
-        """Check if pi0 is a zero-mean Gaussian distribution."""
+    def is_pi_0_zero_mean_gaussian(self):
+        """Check if pi_0 is a zero-mean Gaussian distribution."""
         if callable(self.pi_0): return True # NOTE: fix this
 
         is_multivariate_normal = (
@@ -218,8 +224,8 @@ class RectifiedFlow:
         return is_multivariate_normal or is_normal
     
     @property
-    def is_pi0_standard_gaussian(self):
-        """Check if pi0 is a standard Gaussian distribution."""
+    def is_pi_0_standard_gaussian(self):
+        """Check if pi_0 is a standard Gaussian distribution."""
         is_multivariate_normal = (
             isinstance(self.pi_0, dist.MultivariateNormal) and
             torch.allclose(self.pi_0.mean, torch.zeros_like(self.pi_0.mean)) and
@@ -235,15 +241,15 @@ class RectifiedFlow:
         )
         return is_multivariate_normal or is_normal
 
-    def assert_pi0_is_standard_gaussian(self):
-        """Raise an error if pi0 is not a standard Gaussian distribution."""
-        if not self.is_pi0_standard_gaussian():
-            raise ValueError("pi0 must be a standard Gaussian distribution.")
+    def assert_pi_0_is_standard_gaussian(self):
+        """Raise an error if pi_0 is not a standard Gaussian distribution."""
+        if not self.is_pi_0_standard_gaussian:
+            raise ValueError("pi_0 must be a standard Gaussian distribution.")
 
     def assert_canonical(self):
         """Raise an error if the distribution is not in canonical form."""
-        if not (self.is_pi0_standard_gaussian() and self.independent_coupling):
+        if not (self.is_pi_0_standard_gaussian and self.independent_coupling):
             raise ValueError(
-                "Must be the Canonical Case: pi0 must be a standard Gaussian "
+                "Must be the Canonical Case: pi_0 must be a standard Gaussian "
                 "and the data must be unpaired (independent coupling)."
             )

@@ -1,8 +1,28 @@
 import torch
 from .base_sampler import Sampler
+from rectified_flow.rectified_flow import RectifiedFlow
+from typing import Callable
 
 
 class CurvedEulerSampler(Sampler):
+    def __init__(
+        self,
+        rectified_flow: RectifiedFlow,
+        num_steps: int | None = None,
+        time_grid: list[float] | torch.Tensor | None = None,
+        record_traj_period: int = 1,
+        callbacks: list[Callable] | None = None,
+        num_samples: int | None = None,
+    ):
+        super().__init__(
+            rectified_flow, 
+            num_steps, 
+            time_grid, 
+            record_traj_period, 
+            callbacks, 
+            num_samples,
+        )
+
     def step(self, **model_kwargs):
         t, t_next, x_t = self.t, self.t_next, self.x_t
         v_t = self.get_velocity(**model_kwargs)

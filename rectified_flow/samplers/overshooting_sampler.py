@@ -1,12 +1,30 @@
 import torch
 from .base_sampler import Sampler
-
+from rectified_flow.rectified_flow import RectifiedFlow
+from typing import Callable
 
 class OverShootingSampler(Sampler):
-    def __init__(self, c=1.0, overshooting_method='t + dt * (1 - t)', **kwargs):
-        super().__init__(**kwargs)
-        self.c = c
+    def __init__(
+        self,
+        rectified_flow: RectifiedFlow,
+        num_steps: int | None = None,
+        time_grid: list[float] | torch.Tensor | None = None,
+        record_traj_period: int = 1,
+        callbacks: list[Callable] | None = None,
+        num_samples: int | None = None,
+        c: int = 1.0,
+        overshooting_method: str | Callable = "t + dt * (1 - t)",
+    ):
+        super().__init__(
+            rectified_flow, 
+            num_steps, 
+            time_grid, 
+            record_traj_period, 
+            callbacks, 
+            num_samples,
+        )
 
+        self.c = c
         # Define overshooting method
         if callable(overshooting_method):
             self.overshooting = overshooting_method
@@ -19,7 +37,7 @@ class OverShootingSampler(Sampler):
             raise ValueError("Invalid overshooting method provided. Must be a string or callable.")
 
         # Ensure rf meets required conditions
-        if not (self.rectified_flow.is_pi0_zero_mean_gaussian and self.rectified_flow.independent_coupling):
+        if not (self.rectified_flow.is_pi_0_zero_mean_gaussian and self.rectified_flow.independent_coupling):
             raise ValueError(
                 "pi0 must be a zero-mean Gaussian distribution, and the coupling must be independent."
             )
