@@ -67,8 +67,8 @@ class RectifiedFlow:
 
         self.independent_coupling = is_independent_coupling
 
-        self.device = device  # auto infer
-        self.dtype = dtype
+        self.device = torch.device(device) if isinstance(device, str) else device
+        self.dtype = torch.dtype(dtype) if isinstance(dtype, str) else dtype
 
     def sample_train_time(self, batch_size: int):
         return self.train_time_sampler(batch_size, device=self.device, dtype=self.dtype)
@@ -158,18 +158,41 @@ class RectifiedFlow:
             t=t,
             time_weights=time_weights,
         )
-
-    def get_score_function_from_velocity(self, x_t, v_t, t):
-        # pi_0 (source distribution) must ~ Normal(0,I), Dlogpt(X_t) = -E[X_0|X_t]/bt
-        self.assert_canonical()
-        self.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
-        dlogp = - self.interp.x0 / self.interp.bt
-        return dlogp
-
+    
     def get_score_function(self, x_t, t, **kwargs):
-        self.assert_canonical()
         v_t = self.get_velocity(x_t, t, **kwargs)
         return self.get_score_function_from_velocity(x_t, v_t, t)
+
+    def get_score_function_from_velocity(self, x_t, v_t, t):
+        """
+        Compute the score function of the flow at (X_t, t) from the velocity.
+        
+        pi_0 (source distribution) must a Gaussian distribution.
+        If pi_0 is Normal(0, I), we calculate based on Dlogpt(X_t) = -E[X_0|X_t]/bt. 
+        Otherwise, pi_0.score_function must be provided.
+        """
+        if not self.independent_coupling or not self.is_pi_0_gaussian:
+            warnings.warning('The formula is theoretically correct only for independent couplings and Gaussian pi0, use at your own risk')
+
+        self.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
+        dlogp = self.get_score_function_of_pi_0(self.interp.x_0) / self.interp.b_t
+        return dlogp
+    
+    def get_score_function_of_pi_0(self, x_0):
+        """
+        Compute Dlogp_0(X_0), the score function  of the source distribution pi_0 at X_0.
+        """
+        if self.is_pi_0_standard_gaussian:
+            return -x_0    
+        elif isinstance(self.pi_0, torch.distributions.Normal):            
+            return -(x_0 - self.pi_0.mean.to(self.device, self.dtype)) / self.pi_0.variance.to(self.device, self.dtype)
+        elif isinstance(self.pi_0, torch.distributions.MultivariateNormal):
+            return -(x_0 - self.pi_0.mean.to(self.device, self.dtype)) @ self.pi_0.precision_matrix.to(self.device, self.dtype)
+        else:   
+            try: 
+                return self.pi_0.score_function(x_0)                        
+            except:
+                raise ValueError('pi_0 is not a standard Gaussian distribution and must provide a score function.')  
 
     def get_sde_params_by_sigma(self, v_t, x_t, t, sigma):
         # SDE coeffs for dX_t = v_t(X_t) + sigma_t^2*Dlogp(X_t) + sqrt(2)*sigma_t*dWt
@@ -240,16 +263,13 @@ class RectifiedFlow:
             torch.allclose(self.pi_0.variance, torch.ones_like(self.pi_0.variance))
         )
         return is_multivariate_normal or is_normal
+    
+    @property
+    def is_independent_coupling(self):
+        """Check if rectified flow is a independent coupling."""
+        return self.independent_coupling
 
-    def assert_pi_0_is_standard_gaussian(self):
-        """Raise an error if pi_0 is not a standard Gaussian distribution."""
-        if not self.is_pi_0_standard_gaussian:
-            raise ValueError("pi_0 must be a standard Gaussian distribution.")
-
-    def assert_canonical(self):
-        """Raise an error if the distribution is not in canonical form."""
-        if not (self.is_pi_0_standard_gaussian and self.independent_coupling):
-            raise ValueError(
-                "Must be the Canonical Case: pi_0 must be a standard Gaussian "
-                "and the data must be unpaired (independent coupling)."
-            )
+    @property
+    def is_canonical(self):
+        """Check if the rectified flow is in canonical form."""
+        return self.is_pi_0_standard_gaussian and self.is_independent_coupling

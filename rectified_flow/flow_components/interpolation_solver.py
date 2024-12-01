@@ -193,3 +193,5 @@ class AffineInterp(nn.Module):
         t = match_dim_with_data(t, x_not_none.shape, device=x_not_none.device, dtype=x_not_none.dtype)
         a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t)
         self.solver.solve(self)
+
+        return self
