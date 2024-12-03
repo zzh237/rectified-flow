@@ -98,15 +98,26 @@ class FluxWrapper:
         dtype: torch.dtype,
         device: torch.device,
     ):
-        """
-        Initializes the FluxWrapper with the necessary components.
+        r"""Initialize the FluxWrapper.
+
+        The constructor sets up the image dimensions, latent shapes, and initializes caches for prompt embeddings.
 
         Args:
-            pipeline (FluxPipeline): The diffusion pipeline object.
-            height (int): The height of the images.
-            width (int): The width of the images.
-            dtype (torch.dtype): The data type for computations.
-            device (torch.device): The device on which computations are performed.
+            pipeline (`FluxPipeline`):
+                The FluxPipeline object containing the diffusion model and associated components.
+            height (`int`):
+                The height of the images. Must be divisible by 16.
+            width (`int`):
+                The width of the images. Must be divisible by 16.
+            dtype (`torch.dtype`):
+                The data type for computations (e.g., `torch.float32`).
+            device (`torch.device`):
+                The device on which computations are performed (e.g., `torch.device('cuda')`).
+
+        Raises:
+            `Warning`:
+                If `height` or `width` is not divisible by 16, they are adjusted to the nearest lower multiple of 16,
+                and a warning is issued.
         """
         self.pipeline = pipeline
 
@@ -133,15 +144,13 @@ class FluxWrapper:
         num_steps: int,
         shift: bool = True,
     ):
-        """
-        Prepares the time grid for the diffusion process.
+        """Prepares the time grid for the diffusion process.
 
         Args:
-            num_steps (int): The number of steps in the time grid.
-            shift (bool, optional): Whether to apply a time shift. Defaults to True.
-
-        Returns:
-            List[float]: A list of time values for the diffusion process.
+            num_steps (`int`):
+                The number of steps in the time grid.
+            shift (`bool`, defaults to `True`):
+                Whether to apply a time shift to the grid. 
         """
         time_grid = get_timesteps_flux(
             num_steps=num_steps,
@@ -162,19 +171,27 @@ class FluxWrapper:
         pooled_prompt_embeds: torch.Tensor | None = None,
     ):
         """
-        Computes the flux velocity for a given latent state and time.
+        Compute the flux velocity for a given latent state and time.
 
         Args:
-            x_t (Tensor): The packed latent variables at time t.
-            t (Tensor): The time in RF ODE, which will be converted to Flux's time (1 - t).
-            prompt (str, optional): The text prompt. Defaults to None.
-            guidance_scale (float, optional): The guidance scale. Defaults to 3.5.
-            prompt_embeds (Tensor, optional): Precomputed prompt embeddings. If provided,
-                'prompt' is ignored for embeddings. Defaults to None.
-            pooled_prompt_embeds (Tensor, optional): Precomputed pooled prompt embeddings. Defaults to None.
+            x_t (`Tensor`):
+                The packed latent variables at time `t`. Shape: `(batch_size, image_seq_len, latent_dim)`.
+            t (`torch.Tensor`):
+                The time in Rectified Flow ODE, which will be converted to Flux's time (`1 - t`).
+                Shape: `(batch_size,)`.
+            prompt (`str`, *optional*):
+                The text prompt for conditional generation. If `prompt_embeds` and `pooled_prompt_embeds` are
+                provided, this argument is ignored. Defaults to `None`.
+            guidance_scale (`float`, *optional*, defaults to `3.5`):
+                The guidance scale for Flux-dev model. Higher values encourage the model to better
+                follow the prompt but may lead to quality degradation.
+            prompt_embeds (`torch.Tensor`, *optional*):
+                Precomputed prompt embeddings. If provided, `prompt` is ignored for embeddings. Defaults to `None`.
+            pooled_prompt_embeds (`torch.Tensor`, *optional*):
+                Precomputed pooled prompt embeddings. Must be provided if `prompt_embeds` is provided. Defaults to `None`.
 
         Returns:
-            Tensor: The negative flux velocity.
+            Tensor: The flux velocity corresponding to Rectified Flow ODE state `x_t` at time `t`.
         """
         if x_t.device != self.device:
             x_t = x_t.to(device=self.device)
@@ -245,34 +262,42 @@ class FluxWrapper:
         self,
         dit_latents: Tensor,
     ):
-        """
-        Decodes the DiT latents into images.
+        r"""Decode DiT latents into images.
+
+        This method converts DiT latents (packed latents) back into images by first unpacking them into VAE latents
+        and then decoding them using the VAE decoder.
 
         Args:
-            dit_latents (Tensor): The DiT latents to decode, also referred to as packed latents in HuggingFace. Shape [batch_size, image_seq_len, latent_dim].
+            dit_latents (`Tensor`):
+                The DiT latents to decode. Shape: `(batch_size, image_seq_len, latent_dim)`.
 
         Returns:
-            Tensor: The decoded images. Shape [batch_size, channels, height, width].
+            img_tensor (`Tensor`):
+                The decoded images. Shape: `(batch_size, channels, height, width)`.
         """
         dit_latents = dit_latents.clone().to(device=self.device, dtype=self.dtype)
         assert dit_latents.shape[1] == self.image_seq_len, "Number of patches must match the image sequence length."
         assert dit_latents.shape[2] == 16 * 4, "Number of channels must match the VAE latent channels."
         latents = _unpack_latents(dit_latents, self.height, self.width, vae_scale_factor=8)
-        imgs = decode_imgs(latents, self.pipeline)[0]
-        return imgs
+        images = decode_imgs(latents, self.pipeline)[0]
+        return images
 
     def encode(
         self,
         images: Tensor,
     ):
-        """
-        Encodes the images into DiT latents.
+        r"""Encode images into DiT latents.
+
+        This method encodes images into VAE latents using the VAE encoder and then packs them into DiT latents
+        suitable for processing by the Flux model.
 
         Args:
-            images (Tensor): The images to encode. Shape [batch_size, 3, height, width], with pixel values in range [0, 1].
+            images (`Tensor`):
+                The images to encode. Shape: `(batch_size, 3, height, width)`, with pixel values in range `[0, 1]`.
 
         Returns:
-            Tensor: The DiT latents (packed latents). Shape [batch_size, image_seq_len, latent_dim].
+            dit_latents (`Tensor`):
+                The DiT latents (packed latents). Shape: `(batch_size, image_seq_len, latent_dim)`.
         """
         assert images.shape[2] == self.height and images.shape[3] == self.width, \
             "Image dimensions must match the height and width of the FluxWrapper."
@@ -286,14 +311,17 @@ class FluxWrapper:
         self,
         dit_latents: Tensor,
     ):
-        """
-        Converts DiT latents into VAE latents.
+        r"""Convert DiT latents into VAE latents.
+
+        This method unpacks DiT latents (packed latents) into VAE latents, which can then be decoded into images.
 
         Args:
-            dit_latents (Tensor): The DiT latents to convert. Shape [batch_size, image_seq_len, latent_dim].
+            dit_latents (`Tensor`):
+                The DiT latents to convert. Shape: `(batch_size, image_seq_len, latent_dim)`.
 
         Returns:
-            Tensor: The VAE latents. Shape [batch_size, latent_channels, latent_height, latent_width].
+            vae_latents (`Tensor`):
+                The VAE latents. Shape: `(batch_size, latent_channels, latent_height, latent_width)`.
         """
         return _unpack_latents(dit_latents, self.height, self.width, vae_scale_factor=8)
 
@@ -301,14 +329,17 @@ class FluxWrapper:
         self,
         vae_latents: Tensor,
     ):
-        """
-        Converts VAE latents into DiT latents.
+        r"""Convert VAE latents into DiT latents.
+
+        This method packs VAE latents into DiT latents suitable for processing by the Flux model.
 
         Args:
-            vae_latents (Tensor): The VAE latents to convert. Shape [batch_size, latent_channels, latent_height, latent_width].
+            vae_latents (`Tensor`):
+                The VAE latents to convert. Shape: `(batch_size, latent_channels, latent_height, latent_width)`.
 
         Returns:
-            Tensor: The DiT latents (packed latents). Shape [batch_size, image_seq_len, latent_dim].
+            dit_latents (`Tensor`):
+                The DiT latents (packed latents). Shape: `(batch_size, image_seq_len, latent_dim)`.
         """
         return _pack_latents(vae_latents, vae_latents.shape[0], 16, vae_latents.shape[2], vae_latents.shape[3])
 

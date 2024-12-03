@@ -278,7 +278,7 @@ class DiT(nn.Module):
         print(f"Model weights saved to {output_model_file}")
 
     @classmethod
-    def from_pretrained(cls, save_directory: str, filename: str = "dit_model", use_ema: bool = False):
+    def from_pretrained(cls, save_directory: str, filename: str = "dit", use_ema: bool = False):
         config_path = os.path.join(save_directory, f"{filename}_config.json")
         with open(config_path, 'r', encoding='utf-8') as f:
             config_dict = json.load(f)

@@ -24,53 +24,91 @@ def match_dim_with_data(
     dtype: torch.dtype = torch.float32,
     expand_dim: bool = True,
 ):
-    """
-    Prepares the time tensor by reshaping it to match the dimensions of X.
+    r"""
+    Format the time tensor `t` to match the batch size and dimensions of the data.
+
+    This function ensures that the time tensor `t` is properly formatted to match the batch size specified by `x_shape`. 
+    It handles various input types for `t`, including scalars, lists, or tensors, and converts `t` into a tensor with 
+    appropriate shape, device, and dtype. Optionally, it can expand `t` to match the data dimensions beyond the batch size.
 
     Args:
-        t (Union[torch.Tensor, float, List[float]]): Time tensor, which can be:
-            - A scalar (float or 0-dimensional torch.Tensor)
-            - A list of floats with length equal to the batch size or length 1
-            - A torch.Tensor of shape (B,), (B, 1), or (1,)
-        x_shape (tuple): Shape of the tensor X, e.g., X.shape
+        t (`torch.Tensor`, `float`, or `list[float]`): 
+            The time(s) to be matched with the data dimensions. Can be a scalar, a list of floats, or a tensor.
+        x_shape (`tuple`): 
+            The shape of the data tensor, typically `(batch_size, ...)`.
+        device (`torch.device`, optional, defaults to `torch.device("cpu")`): 
+            The device on which to place the time tensor.
+        dtype (`torch.dtype`, optional, defaults to `torch.float32`): 
+            The data type of the time tensor.
+        expand_dim (`bool`, optional, defaults to `True`): 
+            Whether to expand `t` to match the dimensions after the batch dimension.
 
     Returns:
-        torch.Tensor: Reshaped time tensor, ready for broadcasting with X.
+        t_reshaped (`torch.Tensor`): 
+            The time tensor `t`, formatted to match the batch size or dimensions of the data.
+
+    Example:
+        ```python
+        >>> x_shape = (16, 3, 32, 32)
+        >>> t_prepared = match_dim_with_data([0.5], x_shape, expand_dim=True)
+        >>> t_prepared.shape
+        torch.Size([16, 1, 1, 1])
+
+        >>> x_shape = (16, 3, 32, 32)
+        >>> t_prepared = match_dim_with_data([0.5], x_shape, expand_dim=False)
+        >>> t_prepared.shape
+        torch.Size([16])
+        ```
     """
     B = x_shape[0]  # Batch size
     ndim = len(x_shape)
 
-    if isinstance(t, float): # Create a tensor of shape (B,)
+    if isinstance(t, float):
+        # Create a tensor of shape (B,) with the scalar value
         t = torch.full((B,), t, device=device, dtype=dtype)
     elif isinstance(t, list):
-        if len(t) == 1: # If t is a list of length 1, repeat the scalar value B times
+        if len(t) == 1:
+            # If t is a list of length 1, repeat the scalar value B times
             t = torch.full((B,), t[0], device=device, dtype=dtype)
         elif len(t) == B:
             t = torch.tensor(t, device=device, dtype=dtype)
         else:
-            raise ValueError(f"Length of t list ({len(t)}) does not match batch size ({B}) and is not 1.")
+            raise ValueError(
+                f"Length of t list ({len(t)}) does not match batch size ({B}) and is not 1."
+            )
     elif isinstance(t, torch.Tensor):
         t = t.to(device=device, dtype=dtype)
-        if t.ndim == 0: # Scalar tensor, expand to (B,)
+        if t.ndim == 0:
+            # Scalar tensor, expand to (B,)
             t = t.repeat(B)
         elif t.ndim == 1:
-            if t.shape[0] == 1: # Tensor of shape (1,), repeat to (B,)
+            if t.shape[0] == 1:
+                # Tensor of shape (1,), repeat to (B,)
                 t = t.repeat(B)
-            elif t.shape[0] == B: # t is already of shape (B,)
+            elif t.shape[0] == B:
+                # t is already of shape (B,)
                 pass
             else:
-                raise ValueError(f"Batch size of t ({t.shape[0]}) does not match x ({B}).")
+                raise ValueError(
+                    f"Batch size of t ({t.shape[0]}) does not match x ({B})."
+                )
         elif t.ndim == 2:
-            if t.shape == (B, 1): # t is of shape (B, 1), squeeze last dimension
+            if t.shape == (B, 1):
+                # t is of shape (B, 1), squeeze last dimension
                 t = t.squeeze(1)
-            elif t.shape == (1, 1): # t is of shape (1, 1), expand to (B,)
+            elif t.shape == (1, 1):
+                # t is of shape (1, 1), expand to (B,)
                 t = t.squeeze().repeat(B)
             else:
-                raise ValueError(f"t must be of shape ({B}, 1) or (1, 1), but got {t.shape}")
+                raise ValueError(
+                    f"t must be of shape ({B}, 1) or (1, 1), but got {t.shape}"
+                )
         else:
             raise ValueError(f"t can have at most 2 dimensions, but got {t.ndim}")
     else:
-        raise TypeError(f"t must be a torch.Tensor, float, or a list of floats, but got {type(t)}.")
+        raise TypeError(
+            f"t must be a torch.Tensor, float, or a list of floats, but got {type(t)}."
+        )
 
     # Reshape t to have singleton dimensions matching x_shape after the batch dimension
     if expand_dim:
@@ -283,6 +321,169 @@ def visualize_2d_trajectories_interactive(
 
     # Create the interactive slider
     interact(plot_at_t, t=IntSlider(min=0, max=time_steps - 1, step=1, value=0))
+
+
+def visualize_2d_trajectories_plotly(
+    trajectories_list: list[torch.Tensor],
+    D1_gt_samples: torch.Tensor = None,
+    num_trajectories: int = 50,
+    markersize: int = 3,
+    dimensions: list[int] = [0, 1],
+    alpha_trajectories: float = 0.5,
+    alpha_generated_points: float = 1.0,
+    alpha_gt_points: float = 1.0,
+    show_legend: bool = True,
+    title: str = '2D Trajectories Visualization',
+):
+    import plotly.graph_objects as go
+
+    dim0, dim1 = dimensions
+
+    # Convert ground truth samples to NumPy if provided
+    if D1_gt_samples is not None:
+        D1_gt_samples = D1_gt_samples.clone().to(torch.float32).cpu().detach().numpy()
+
+    # Convert trajectories_list to numpy arrays
+    xtraj_list = [
+        traj.clone().to(torch.float32).detach().cpu().numpy()  # Shape: [time_steps, batch_size, dimension]
+        for traj in trajectories_list
+    ]
+
+    # Concatenate trajectories along batch dimension
+    xtraj = np.stack(xtraj_list)  # Shape: [time_steps, total_batch_size, dimension]
+
+    time_steps = xtraj.shape[0]
+
+    # Precompute the trajectory lines
+    lines_data = []
+    num_points = xtraj.shape[1]
+    for i in range(min(num_trajectories, num_points)):
+        line_x = xtraj[:, i, dim0]
+        line_y = xtraj[:, i, dim1]
+        lines_data.append((line_x, line_y))
+
+    # Create figure
+    fig = go.Figure()
+
+    # Plot ground truth samples
+    if D1_gt_samples is not None:
+        fig.add_trace(go.Scatter(
+            x=D1_gt_samples[:, dim0],
+            y=D1_gt_samples[:, dim1],
+            mode='markers',
+            name='D1',
+            marker=dict(size=markersize, opacity=alpha_gt_points),
+            showlegend=show_legend
+        ))
+
+    # Plot initial points from trajectories (t=0)
+    fig.add_trace(go.Scatter(
+        x=xtraj[0][:, dim0],
+        y=xtraj[0][:, dim1],
+        mode='markers',
+        name='D0',
+        marker=dict(size=markersize, opacity=alpha_gt_points),
+        showlegend=show_legend
+    ))
+
+    # Plot generated points at final time (t=last time step)
+    fig.add_trace(go.Scatter(
+        x=xtraj[-1][:, dim0],
+        y=xtraj[-1][:, dim1],
+        mode='markers',
+        name='Generated',
+        marker=dict(size=markersize, opacity=alpha_generated_points),
+        showlegend=show_legend
+    ))
+
+    # Plot trajectory lines for num_trajectories
+    for line_x, line_y in lines_data:
+        fig.add_trace(go.Scatter(
+            x=line_x,
+            y=line_y,
+            mode='lines',
+            line=dict(dash='dash', color='green'),
+            opacity=alpha_trajectories,
+            showlegend=False
+        ))
+
+    # Add a trace for points at time t (will be updated in frames)
+    # Start with t=0
+    fig.add_trace(go.Scatter(
+        x=xtraj[0][:, dim0],
+        y=xtraj[0][:, dim1],
+        mode='markers',
+        name='#Step',
+        marker=dict(size=markersize, color='blue'),
+        showlegend=show_legend
+    ))
+
+    # Create frames
+    frames = []
+    for t in range(time_steps):
+        frame_data = []
+        # Update 'Time t' trace (last trace)
+        frame_data.append(go.Scatter(
+            x=xtraj[t][:, dim0],
+            y=xtraj[t][:, dim1],
+            mode='markers',
+            marker=dict(size=markersize, color='blue'),
+            name=f'#Step={t}',
+            showlegend=False
+        ))
+        frames.append(go.Frame(
+            data=frame_data,
+            name=str(t),
+            traces=[len(fig.data) - 1]
+        ))
+
+    # Create slider steps
+    slider_steps = []
+    for t in range(time_steps):
+        step = dict(
+            method='animate',
+            args=[[str(t)],
+                  dict(mode='immediate',
+                       frame=dict(duration=0, redraw=True),
+                       transition=dict(duration=0))
+                  ],
+            label=str(t)
+        )
+        slider_steps.append(step)
+
+    # Create sliders
+    sliders = [dict(
+        active=0,
+        currentvalue={"prefix": "#Step: "},
+        pad={"t": 50},
+        steps=slider_steps
+    )]
+
+    # Update figure layout
+    fig.update_layout(
+        sliders=sliders,
+        updatemenus=[dict(
+            type='buttons',
+            buttons=[dict(label='Play',
+                          method='animate',
+                          args=[None, dict(frame=dict(duration=500, redraw=True),
+                                           transition=dict(duration=0),
+                                           fromcurrent=True,
+                                           mode='immediate')])]
+        )],
+        xaxis_title=f'Dimension {dim0}',
+        yaxis_title=f'Dimension {dim1}',
+        title=title,
+        showlegend=show_legend,
+        width=800, 
+        height=600,
+    )
+
+    # Add frames
+    fig.frames = frames
+
+    # Show figure
+    fig.show()
 
 
 def plot_cifar_results(images, nrow=10, title=None):
