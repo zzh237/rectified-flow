@@ -60,7 +60,7 @@ class RectifiedFlow:
                 Loss function used for training. 
                 Can be an instance of `RectifiedFlowLossFunction` or a string specifying the loss type.
         """
-        self.data_shape = data_shape
+        self.data_shape = tuple(data_shape) if isinstance(data_shape, (list, tuple)) else (data_shape,)
         self.velocity_field = velocity_field 
 
         self.interp: AffineInterp = (
@@ -89,20 +89,19 @@ class RectifiedFlow:
                 torch.tensor(0, device=device, dtype=dtype),
                 torch.tensor(1, device=device, dtype=dtype)
             ).expand(data_shape)
-        else:
-            if isinstance(self.pi_0, dist.Distribution):
-                if self.pi_0.mean.device != self.device or self.pi_0.stddev.device != self.device:
-                    warnings.warn(
-                        f"[Device Mismatch] The source distribution is on device "
-                        f"{self.pi_0.mean.device}, while the model expects device {self.device}. "
-                        f"Ensure that the distribution and model are on the same device."
-                    )
-                if self.pi_0.mean.dtype != self.dtype or self.pi_0.stddev.dtype != self.dtype:
-                    warnings.warn(
-                        f"[Dtype Mismatch] The source distribution uses dtype "
-                        f"{self.pi_0.mean.dtype}, while the model expects dtype {self.dtype}. "
-                        f"Consider converting the distribution to match the model's dtype."
-                    )
+        elif isinstance(self.pi_0, dist.Distribution):
+            if self.pi_0.mean.device != self.device or self.pi_0.stddev.device != self.device:
+                warnings.warn(
+                    f"[Device Mismatch] The source distribution is on device "
+                    f"{self.pi_0.mean.device}, while the model expects device {self.device}. "
+                    f"Ensure that the distribution and model are on the same device."
+                )
+            if self.pi_0.mean.dtype != self.dtype or self.pi_0.stddev.dtype != self.dtype:
+                warnings.warn(
+                    f"[Dtype Mismatch] The source distribution uses dtype "
+                    f"{self.pi_0.mean.dtype}, while the model expects dtype {self.dtype}. "
+                    f"Consider converting the distribution to match the model's dtype."
+                )
 
         self.independent_coupling = is_independent_coupling
 
@@ -218,7 +217,12 @@ class RectifiedFlow:
                 A scalar tensor representing the computed loss value.
         """
         t = self.sample_train_time(x_1.shape[0]) if t is None else t
-        x_0 = self.sample_source_distribution(x_1.shape[0]) if x_0 is None else x_0
+
+        if x_0 is None:
+            if self.is_independent_coupling:
+                x_0 = self.sample_source_distribution(x_1.shape[0])
+            else:
+                warnings.warn("x_0 is not provided and is not independent coupling. Sampling from pi_0 might not be correct.")
 
         x_t, dot_x_t = self.get_interpolation(x_0, x_1, t)
         v_t = self.get_velocity(x_t, t, **kwargs)

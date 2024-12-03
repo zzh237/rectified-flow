@@ -323,6 +323,169 @@ def visualize_2d_trajectories_interactive(
     interact(plot_at_t, t=IntSlider(min=0, max=time_steps - 1, step=1, value=0))
 
 
+def visualize_2d_trajectories_plotly(
+    trajectories_list: list[torch.Tensor],
+    D1_gt_samples: torch.Tensor = None,
+    num_trajectories: int = 50,
+    markersize: int = 3,
+    dimensions: list[int] = [0, 1],
+    alpha_trajectories: float = 0.5,
+    alpha_generated_points: float = 1.0,
+    alpha_gt_points: float = 1.0,
+    show_legend: bool = True,
+    title: str = '2D Trajectories Visualization',
+):
+    import plotly.graph_objects as go
+
+    dim0, dim1 = dimensions
+
+    # Convert ground truth samples to NumPy if provided
+    if D1_gt_samples is not None:
+        D1_gt_samples = D1_gt_samples.clone().to(torch.float32).cpu().detach().numpy()
+
+    # Convert trajectories_list to numpy arrays
+    xtraj_list = [
+        traj.clone().to(torch.float32).detach().cpu().numpy()  # Shape: [time_steps, batch_size, dimension]
+        for traj in trajectories_list
+    ]
+
+    # Concatenate trajectories along batch dimension
+    xtraj = np.stack(xtraj_list)  # Shape: [time_steps, total_batch_size, dimension]
+
+    time_steps = xtraj.shape[0]
+
+    # Precompute the trajectory lines
+    lines_data = []
+    num_points = xtraj.shape[1]
+    for i in range(min(num_trajectories, num_points)):
+        line_x = xtraj[:, i, dim0]
+        line_y = xtraj[:, i, dim1]
+        lines_data.append((line_x, line_y))
+
+    # Create figure
+    fig = go.Figure()
+
+    # Plot ground truth samples
+    if D1_gt_samples is not None:
+        fig.add_trace(go.Scatter(
+            x=D1_gt_samples[:, dim0],
+            y=D1_gt_samples[:, dim1],
+            mode='markers',
+            name='D1',
+            marker=dict(size=markersize, opacity=alpha_gt_points),
+            showlegend=show_legend
+        ))
+
+    # Plot initial points from trajectories (t=0)
+    fig.add_trace(go.Scatter(
+        x=xtraj[0][:, dim0],
+        y=xtraj[0][:, dim1],
+        mode='markers',
+        name='D0',
+        marker=dict(size=markersize, opacity=alpha_gt_points),
+        showlegend=show_legend
+    ))
+
+    # Plot generated points at final time (t=last time step)
+    fig.add_trace(go.Scatter(
+        x=xtraj[-1][:, dim0],
+        y=xtraj[-1][:, dim1],
+        mode='markers',
+        name='Generated',
+        marker=dict(size=markersize, opacity=alpha_generated_points),
+        showlegend=show_legend
+    ))
+
+    # Plot trajectory lines for num_trajectories
+    for line_x, line_y in lines_data:
+        fig.add_trace(go.Scatter(
+            x=line_x,
+            y=line_y,
+            mode='lines',
+            line=dict(dash='dash', color='green'),
+            opacity=alpha_trajectories,
+            showlegend=False
+        ))
+
+    # Add a trace for points at time t (will be updated in frames)
+    # Start with t=0
+    fig.add_trace(go.Scatter(
+        x=xtraj[0][:, dim0],
+        y=xtraj[0][:, dim1],
+        mode='markers',
+        name='#Step',
+        marker=dict(size=markersize, color='blue'),
+        showlegend=show_legend
+    ))
+
+    # Create frames
+    frames = []
+    for t in range(time_steps):
+        frame_data = []
+        # Update 'Time t' trace (last trace)
+        frame_data.append(go.Scatter(
+            x=xtraj[t][:, dim0],
+            y=xtraj[t][:, dim1],
+            mode='markers',
+            marker=dict(size=markersize, color='blue'),
+            name=f'#Step={t}',
+            showlegend=False
+        ))
+        frames.append(go.Frame(
+            data=frame_data,
+            name=str(t),
+            traces=[len(fig.data) - 1]
+        ))
+
+    # Create slider steps
+    slider_steps = []
+    for t in range(time_steps):
+        step = dict(
+            method='animate',
+            args=[[str(t)],
+                  dict(mode='immediate',
+                       frame=dict(duration=0, redraw=True),
+                       transition=dict(duration=0))
+                  ],
+            label=str(t)
+        )
+        slider_steps.append(step)
+
+    # Create sliders
+    sliders = [dict(
+        active=0,
+        currentvalue={"prefix": "#Step: "},
+        pad={"t": 50},
+        steps=slider_steps
+    )]
+
+    # Update figure layout
+    fig.update_layout(
+        sliders=sliders,
+        updatemenus=[dict(
+            type='buttons',
+            buttons=[dict(label='Play',
+                          method='animate',
+                          args=[None, dict(frame=dict(duration=500, redraw=True),
+                                           transition=dict(duration=0),
+                                           fromcurrent=True,
+                                           mode='immediate')])]
+        )],
+        xaxis_title=f'Dimension {dim0}',
+        yaxis_title=f'Dimension {dim1}',
+        title=title,
+        showlegend=show_legend,
+        width=800, 
+        height=600,
+    )
+
+    # Add frames
+    fig.frames = frames
+
+    # Show figure
+    fig.show()
+
+
 def plot_cifar_results(images, nrow=10, title=None):
     images = (images.cpu().detach().clone() * 0.5 + 0.5).clamp(0, 1)
     grid = torchvision.utils.make_grid(images, nrow=nrow, padding=1, normalize=False)

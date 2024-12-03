@@ -217,12 +217,9 @@ class Sampler:
         self.x_0 = self.x_t.clone()
 
         # Prepare time grid, can be overridden when calling the method
-        if num_steps is not None:
-            self.num_steps = num_steps
-        if time_grid is not None:
-            self.time_grid = time_grid
+        if num_steps is not None or time_grid is not None:
+            self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
 
-        self.num_steps, self.time_grid = self._prepare_time_grid(self.num_steps, self.time_grid)
         self.step_count = 0
         self.time_iter = iter(self.time_grid)
         self.t = next(self.time_iter)
