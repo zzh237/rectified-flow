@@ -6,44 +6,38 @@ from typing import Callable
 
 
 class SDESampler(Sampler):
-    """
-    Stochastic sampler for rectified flow with independent coupling and a Gaussian noise distribution (pi0).
+    r"""Stochastic sampler for rectified flow with independent coupling and a Gaussian noise distribution (pi0).
 
-    At each iteration, we decompose `X_t` into:
-        X_t = alpha_t * X1_pred + beta_t * X0_pred
+    At each iteration, the sampler decomposes X_t into:
 
-    If `noise_method='stable'`, we refresh noise on `X0_pred` via:
-        X_t' = X_t - beta_t_noised * (X0_pred - pi0.mean()) + sqrt(beta_t^2 - (beta_t - beta_t_noised)^2) * (refresh_noise - pi0.mean())
-    where `beta_t_noised` is set to:
-        beta_t_noised = step_size * noise_scale(t) * beta_t(t) ** noise_decay_rate(t),
-    and `beta_t_noised = min(beta_t_noised, beta_t)`.
+        X_t = alpha_t * X_1_pred + beta_t * X_0_pred.
 
-    If `noise_method='euler'`, we use the approximation:
-        sqrt(beta_t^2 - (beta_t - beta_t_noised)^2) ≈ sqrt(2 * beta_t * beta_t_noised)
+    - If `noise_method=='stable'`, the noise on X_0_pred is refreshed as follows:
+            
+            X_t_noised = X_t - beta_t_noised * (X_0_pred - pi_0.mean()) + sqrt(beta_t**2 - (beta_t - beta_t_noised)**2) * (refresh_noise - pi0.mean()),
+        
+    where beta_t_noised is computed as:
 
-    When using `noise_method='euler'` and `ode_method='euler'`, the method is equivalent to the Euler method for solving the SDE:
-        dX_t = v_t(X_t) dt - e_t * (X0_pred(X_t) - pi0.mean()) dt + sqrt(2 * beta_t * e_t) * sqrt(pi0.cov()) * dW_t
-    with:
-        e_t = beta_t_noised / step_size = noise_scale(t) * beta_t(t) ** noise_decay_rate(t)
+            beta_t_noised = step_size * noise_scale(t) * beta_t(t)**noise_decay_rate(t),
 
-    Args:
-        rectified_flow (RectifiedFlow): The rectified flow model.
-        num_steps (int, optional): Number of steps in the time grid. Defaults to None.
-        time_grid (list[float] or torch.Tensor, optional): Custom time grid. Defaults to None.
-        record_traj_period (int, optional): Period to record trajectory. Defaults to 1.
-        callbacks (list[Callable], optional): List of callback functions. Defaults to None.
-        num_samples (int, optional): Number of samples to generate. Defaults to None.
-        noise_magnitude (Callable, optional): Function to compute noise magnitude at time t. Should accept a float t and return a float. Defaults to `lambda t: 1`.
-        noise_method (str, optional): Method to compute noise ('stable' or 'euler'). Defaults to 'stable'.
-        ode_method (str, optional): Method to advance ODE ('straight' or 'curved'). Defaults to 'curved'.
+    and is capped by beta_t:
 
-    Attributes:
-        noise_magnitude (Callable): Function to compute noise magnitude at time t.
-        noise_method (str): Method to compute noise ('stable' or 'euler').
-        ode_method (str): Method to advance ODE ('straight' or 'curved').
+            beta_t_noised = min(beta_t_noised, beta_t).
+        
+    - If `noise_method=='euler'`, the noise term is approximated using:
 
-    Raises:
-        ValueError: If `pi_0` is not a standard Gaussian distribution or the coupling is not independent.
+        sqrt(beta_t**2 - (beta_t - beta_t_noised)**2) ~= sqrt(2 * beta_t * beta_t_noised).
+
+
+    Notes:
+        When using both `noise_method='euler'` and `ode_method='euler'`, the method is equivalent to the Euler method for solving the SDE:
+
+            dX_t = vt(X_t) dt - e_t * (X_0_pred(X_t) - pi_0.mean()) dt 
+                + sqrt(2 * beta_t * e_t) * sqrt(pi_0.cov()) * dW_t,
+
+        where:
+
+            e_t = beta_t_noised / step_size = noise_scale(t) * beta_t(t)**noise_decay_rate(t).
     """
 
     def __init__(
@@ -91,15 +85,6 @@ class SDESampler(Sampler):
             raise TypeError("coeff should be a float, int, torch.Tensor, or callable.")
 
     def step(self, **model_kwargs):
-        """
-        Perform a single SDE sampling step.
-
-        Args:
-            **model_kwargs: Additional keyword arguments passed to the model when computing the velocity.
-
-        Updates:
-            self.x_t (Tensor): The updated sample at the next time step `t_next`.
-        """
         t, t_next, x_t = self.t, self.t_next, self.x_t
         v_t = self.get_velocity(**model_kwargs)
         step_size = t_next - t
