@@ -14,7 +14,7 @@ class AffineInterpSolver:
         x_t = a_t * x_1 + b_t * x_0,
         dot_x_t = dot_a_t * x_1 + dot_b_t * x_0.
 
-    Given any two unknown variables among `x_0, x_1, x_t, dot_x_t`, and the rest known, 
+    Given at least two known variables among `x_0, x_1, x_t, dot_x_t`, and the rest unknown, 
     the solver computes the unknowns. The method precomputes symbolic solutions for all pairs 
     of unknown variables and stores them as lambdified functions for efficient numerical computation.
     """
@@ -160,9 +160,9 @@ class AffineInterp(nn.Module):
     - **Straight Line Interpolation** (`"straight"` or `"lerp"`):
 
         alpha(t) = t,  beta(t) = 1 - t,
-        dot_alpha(t)a_t = 1, dot_beta(t) = -1.
+        dot_alpha(t) = 1, dot_beta(t) = -1.
 
-    - **Spherical Interpolation** (`"spherical"`, `"harmonic"`, `"cos"`, `"sin"`, `"slerp"`):
+    - **Spherical Interpolation** (`"spherical"` or `"slerp"`):
 
         alpha(t) = sin(pi / 2 * t), beta(t) = cos(pi / 2  * t),
         dot_alpha(t) = pi / 2 * cos(pi / 2 * t), dot_beta(t) = -pi / 2 * sin(pi / 2 * t).
@@ -203,7 +203,7 @@ class AffineInterp(nn.Module):
             dot_alpha = lambda t: torch.ones_like(t)
             dot_beta = lambda t: -torch.ones_like(t)
             name = 'straight'
-        elif name.lower() in ['harmonic', 'cos', 'sin', 'slerp', 'spherical']:
+        elif name.lower() in ['slerp', 'spherical']:
             # Special case of "spherical" interpolation
             alpha = lambda t: torch.sin(t * torch.pi / 2.0)
             beta = lambda t: torch.cos(t * torch.pi / 2.0)
@@ -331,7 +331,7 @@ class AffineInterp(nn.Module):
         dot_x_t = dot_a_t * x_1 + dot_b_t * x_0
         return x_t, dot_x_t
 
-    def solve(self, t=None, x_0=None, x_1=None, x_t=None, dot_x_t=None):
+    def solve(self, t=None, x_0=None, x_1=None, x_t=None, dot_x_t=None, detach=True):
         r"""Solve for unknown variables in the affine interpolation equations.
 
         This method solves the equations:
@@ -378,15 +378,18 @@ class AffineInterp(nn.Module):
         """
         if t is None:
             raise ValueError("t must be provided")
+
         self.x_0 = x_0
         self.x_1 = x_1
         self.x_t = x_t
         self.dot_x_t = dot_x_t
-        x_not_none = next((v for v in [x_0, x_1, x_t, dot_x_t] if v is not None), None)
-        if x_not_none is None:
-            raise ValueError("At least two of x_0, x_1, x_t, dot_x_t must not be None")
-        t = match_dim_with_data(t, x_not_none.shape, device=x_not_none.device, dtype=x_not_none.dtype)
-        a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t)
-        self.solver.solve(self)
 
-        return self
+        non_none_values = [v for v in [x_0, x_1, x_t, dot_x_t] if v is not None]
+        if len(non_none_values) < 2:
+            raise ValueError("At least two of x_0, x_1, x_t, dot_x_t must not be None")
+
+        x_not_none = non_none_values[0]
+        t = match_dim_with_data(t, x_not_none.shape, device=x_not_none.device, dtype=x_not_none.dtype)
+        a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t, detach)
+        
+        return self.solver.solve(self)

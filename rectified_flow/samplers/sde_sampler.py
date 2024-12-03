@@ -90,10 +90,10 @@ class SDESampler(Sampler):
         step_size = t_next - t
 
         # Solve for x_0 and x_1 given x_t and v_t
-        self.rectified_flow.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
-        x_0 = self.rectified_flow.interp.x_0
-        x_1 = self.rectified_flow.interp.x_1
-        beta_t = self.rectified_flow.interp.beta(t)
+        interp = self.rectified_flow.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
+        x_0 = interp.x_0
+        x_1 = interp.x_1
+        beta_t = interp.beta(t)
 
         # Part 1: Add noise
 
@@ -130,12 +130,10 @@ class SDESampler(Sampler):
         elif self.ode_method.lower() == 'curved':
             # Curved Euler method, following the underlying interpolation curve
             # a. Get x_0_noised from x_t_noised and x_1
-            self.rectified_flow.interp.solve(t=t, x_t=x_t_noised, x_1=x_1)
-            x_0_noised = self.rectified_flow.interp.x_0
+            x_0_noised = self.rectified_flow.interp.solve(t=t, x_t=x_t_noised, x_1=x_1).x_0
 
             # b. Interpolate to get x_t_next given x_0_noised and x_1
-            self.rectified_flow.interp.solve(t=t_next, x_0=x_0_noised, x_1=x_1)
-            x_t_next = self.rectified_flow.interp.x_t
+            x_t_next = self.rectified_flow.interp.solve(t=t_next, x_0=x_0_noised, x_1=x_1).x_t
 
         else:
             raise ValueError(f"Unknown ode_method: {self.ode_method}")

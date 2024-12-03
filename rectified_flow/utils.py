@@ -116,7 +116,6 @@ def match_dim_with_data(
         t = t.view(B, *expanded_dims)
 
     return t
-
     
 
 def visualize_2d_trajectories(

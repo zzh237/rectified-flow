@@ -22,7 +22,7 @@ class RectifiedFlow:
     def __init__(
         self,
         data_shape: tuple,
-        model: nn.Module,
+        velocity_field: nn.Module | Callable,
         interp: AffineInterp | str = "straight",
         source_distribution: torch.distributions.Distribution | str | Callable = "normal",
         is_independent_coupling: bool = True,
@@ -37,8 +37,8 @@ class RectifiedFlow:
         Args:
             data_shape (`tuple`): 
                 Shape of the input data, excluding the batch dimension.
-            model (`nn.Module`): 
-                Velocity field model that takes inputs `x_t` and time `t`, and outputs velocity `v_t`.
+            velocity_field (`nn.Module`): 
+                Velocity field velocity_field that takes inputs `x_t` and time `t`, and outputs velocity `v_t`.
             interp (`AffineInterp` or `str`, *optional*, defaults to `"straight"`):
                 Interpolation method for generating intermediate states.
                 Can be an instance of `AffineInterp` or a string used to initialize the `AffineInterp` class.
@@ -61,7 +61,7 @@ class RectifiedFlow:
                 Can be an instance of `RectifiedFlowLossFunction` or a string specifying the loss type.
         """
         self.data_shape = data_shape
-        self.model = model 
+        self.velocity_field = velocity_field 
 
         self.interp: AffineInterp = (
             interp if isinstance(interp, AffineInterp) else AffineInterp(interp)
@@ -79,6 +79,9 @@ class RectifiedFlow:
         self.criterion: RectifiedFlowLossFunction = (
             criterion if isinstance(criterion, RectifiedFlowLossFunction) else RectifiedFlowLossFunction(criterion)
         )
+
+        self.device = torch.device(device) if isinstance(device, str) else device
+        self.dtype = torch.dtype(dtype) if isinstance(dtype, str) else dtype
         
         self.pi_0 = source_distribution
         if self.pi_0 == "normal": 
@@ -88,25 +91,23 @@ class RectifiedFlow:
             ).expand(data_shape)
         else:
             if isinstance(self.pi_0, dist.Distribution):
-                if self.pi_0.mean.device != device or self.pi_0.stddev.device != device:
+                if self.pi_0.mean.device != self.device or self.pi_0.stddev.device != self.device:
                     warnings.warn(
                         f"[Device Mismatch] The source distribution is on device "
-                        f"{self.pi_0.mean.device}, while the model expects device {device}. "
+                        f"{self.pi_0.mean.device}, while the model expects device {self.device}. "
                         f"Ensure that the distribution and model are on the same device."
                     )
-                if self.pi_0.mean.dtype != dtype or self.pi_0.stddev.dtype != dtype:
+                if self.pi_0.mean.dtype != self.dtype or self.pi_0.stddev.dtype != self.dtype:
                     warnings.warn(
                         f"[Dtype Mismatch] The source distribution uses dtype "
-                        f"{self.pi_0.mean.dtype}, while the model expects dtype {dtype}. "
+                        f"{self.pi_0.mean.dtype}, while the model expects dtype {self.dtype}. "
                         f"Consider converting the distribution to match the model's dtype."
                     )
 
         self.independent_coupling = is_independent_coupling
 
-        self.device = torch.device(device) if isinstance(device, str) else device
-        self.dtype = torch.dtype(dtype) if isinstance(dtype, str) else dtype
 
-    def sample_train_time(self, batch_size: int):
+    def sample_train_time(self, batch_size: int, expand_dim: bool = True):
         r"""This method calls the `TrainTimeSampler` to sample training times. 
 
         Returns:
@@ -114,7 +115,8 @@ class RectifiedFlow:
                 A tensor of sampled training times with shape `(batch_size,)`, 
                 matching the class specified `device` and `dtype`.
         """
-        return self.train_time_sampler(batch_size, device=self.device, dtype=self.dtype)
+        time = self.train_time_sampler(batch_size, device=self.device, dtype=self.dtype)
+        return self.match_dim_with_data(time, (batch_size, *self.data_shape), expand_dim=expand_dim)
 
     def sample_source_distribution(self, batch_size: int):
         r"""Sample data from the source distribution `pi_0`.
@@ -182,7 +184,7 @@ class RectifiedFlow:
                 The velocity tensor `v_t`, with the same shape as `x_t` (`B, D_1, D_2, ..., D_n)`).
         """
         t = self.match_dim_with_data(t, x_t.shape, expand_dim=False)
-        velocity = self.model(x_t, t, **kwargs)
+        velocity = self.velocity_field(x_t, t, **kwargs)
         return velocity
     
     def get_loss(
