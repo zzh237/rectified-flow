@@ -205,137 +205,20 @@ def visualize_2d_trajectories(
     plt.tight_layout()
 
 
-from ipywidgets import interact, IntSlider
-
-def visualize_2d_trajectories_interactive(
-    trajectories_list: list[torch.Tensor],
-    D1_gt_samples: torch.Tensor = None,
-    num_trajectories: int = 50,
-    markersize: int = 3,
-    dimensions: list[int] = [0, 1],
-    alpha_trajectories: float = 0.5,
-    alpha_generated_points: float = 1.0,
-    alpha_gt_points: float = 1.0,
-    show_legend: bool = True,
-):
-    """
-    Plots 2D trajectories and points for visualization with an interactive slider for time t.
-
-    Parameters:
-        trajectories_list (list): List of trajectories to display.
-        D1_gt_samples (torch.Tensor, optional): Ground truth samples.
-        num_trajectories (int): Number of trajectories to display.
-        markersize (int): Size of the markers.
-        dimensions (list): Indices of the dimensions to plot.
-        alpha_trajectories (float): Transparency of trajectory lines.
-        alpha_generated_points (float): Transparency of generated points.
-        alpha_gt_points (float): Transparency of true points.
-        show_legend (bool): Whether to display the legend.
-    """
-    dim0, dim1 = dimensions
-
-    # Convert ground truth samples to NumPy if provided
-    if D1_gt_samples is not None:
-        D1_gt_samples = D1_gt_samples.clone().to(torch.float32).cpu().detach().numpy()
-
-    # Concatenate trajectories along batch dimension
-    traj_list_flat = [
-        traj.clone().to(torch.float32).detach().cpu()  # Shape: [time_steps, batch_size, dimension]
-        for traj in trajectories_list
-    ]
-
-    xtraj = torch.stack(traj_list_flat).numpy()  # Shape: [time_steps, total_batch_size, dimension]
-
-    time_steps = xtraj.shape[0]
-
-    # Precompute the trajectory lines
-    lines_data = []
-    num_points = xtraj.shape[1]
-    for i in range(min(num_trajectories, num_points)):
-        line_x = xtraj[:, i, dim0]
-        line_y = xtraj[:, i, dim1]
-        lines_data.append((line_x, line_y))
-
-    # Define the plotting function
-    def plot_at_t(t):
-        fig, ax = plt.subplots(dpi=100)
-
-        # Plot ground truth samples
-        if D1_gt_samples is not None:
-            ax.plot(
-                D1_gt_samples[:, dim0],
-                D1_gt_samples[:, dim1],
-                '.',
-                label='D1',
-                markersize=markersize,
-                alpha=alpha_gt_points
-            )
-
-        # Plot initial points from trajectories (at t=0)
-        ax.plot(
-            xtraj[0][:, dim0],
-            xtraj[0][:, dim1],
-            '.',
-            label='D0',
-            markersize=markersize,
-            alpha=alpha_gt_points
-        )
-
-        # Plot generated points at final time
-        ax.plot(
-            xtraj[-1][:, dim0],
-            xtraj[-1][:, dim1],
-            'r.',
-            label='Generated',
-            markersize=markersize,
-            alpha=alpha_generated_points
-        )
-
-        # Plot trajectory lines for num_trajectories
-        for line_x, line_y in lines_data:
-            ax.plot(
-                line_x,
-                line_y,
-                '--g',
-                alpha=alpha_trajectories
-            )
-
-        # Plot points at time t
-        t_int = int(t)
-        ax.plot(
-            xtraj[t_int][:, dim0],
-            xtraj[t_int][:, dim1],
-            'o',
-            label=f'step = {t_int}',
-            markersize=markersize,
-            color='blue'
-        )
-
-        # Add legend and labels
-        if show_legend:
-            ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        ax.set_xlabel(f'Dimension {dim0}')
-        ax.set_ylabel(f'Dimension {dim1}')
-        ax.set_title(f'2D Trajectories Visualization at step={t_int}')
-        plt.show()
-
-    # Create the interactive slider
-    interact(plot_at_t, t=IntSlider(min=0, max=time_steps - 1, step=1, value=0))
-
-
 def visualize_2d_trajectories_plotly(
-    trajectories_list: list[torch.Tensor],
+    trajectories_dict: dict[str, list[torch.Tensor]],
     D1_gt_samples: torch.Tensor = None,
     num_trajectories: int = 50,
     markersize: int = 3,
     dimensions: list[int] = [0, 1],
-    alpha_trajectories: float = 0.5,
-    alpha_generated_points: float = 1.0,
+    alpha_trajectories: float = 0.3,
+    alpha_particles: float = 0.8,
     alpha_gt_points: float = 1.0,
     show_legend: bool = True,
     title: str = '2D Trajectories Visualization',
 ):
     import plotly.graph_objects as go
+    from plotly.colors import qualitative
 
     dim0, dim1 = dimensions
 
@@ -343,24 +226,30 @@ def visualize_2d_trajectories_plotly(
     if D1_gt_samples is not None:
         D1_gt_samples = D1_gt_samples.clone().to(torch.float32).cpu().detach().numpy()
 
-    # Convert trajectories_list to numpy arrays
-    xtraj_list = [
-        traj.clone().to(torch.float32).detach().cpu().numpy()  # Shape: [time_steps, batch_size, dimension]
-        for traj in trajectories_list
-    ]
+    # Prepare color mapping for trajectories
+    qualitative_colors = qualitative.Plotly
+    trajectory_names = list(trajectories_dict.keys())
+    colors = {}
+    for i, name in enumerate(trajectory_names):
+        base_color = qualitative_colors[i % len(qualitative_colors)]
+        colors[name] = {
+            'particle_color': base_color, 
+            'trajectory_color': base_color
+        }
 
-    # Concatenate trajectories along batch dimension
-    xtraj = np.stack(xtraj_list)  # Shape: [time_steps, total_batch_size, dimension]
+    # Process trajectories and store data
+    trajectory_data = {}
+    max_time_steps = 0
 
-    time_steps = xtraj.shape[0]
-
-    # Precompute the trajectory lines
-    lines_data = []
-    num_points = xtraj.shape[1]
-    for i in range(min(num_trajectories, num_points)):
-        line_x = xtraj[:, i, dim0]
-        line_y = xtraj[:, i, dim1]
-        lines_data.append((line_x, line_y))
+    for trajectory_name, traj_list in trajectories_dict.items():
+        # traj_list: List of trajectories, each of shape [batch_size, dimension]
+        xtraj_list = [
+            traj.clone().to(torch.float32).detach().cpu().numpy()
+            for traj in traj_list
+        ]
+        xtraj = np.stack(xtraj_list)  # Shape: [time_steps, total_batch_size, dimension]
+        trajectory_data[trajectory_name] = xtraj
+        max_time_steps = max(max_time_steps, xtraj.shape[0])
 
     # Create figure
     fig = go.Figure()
@@ -371,75 +260,96 @@ def visualize_2d_trajectories_plotly(
             x=D1_gt_samples[:, dim0],
             y=D1_gt_samples[:, dim1],
             mode='markers',
-            name='D1',
-            marker=dict(size=markersize, opacity=alpha_gt_points),
+            name='D1 Ground Truth',
+            marker=dict(size=markersize, opacity=alpha_gt_points, color='red'),
             showlegend=show_legend
         ))
 
-    # Plot initial points from trajectories (t=0)
-    fig.add_trace(go.Scatter(
-        x=xtraj[0][:, dim0],
-        y=xtraj[0][:, dim1],
-        mode='markers',
-        name='D0',
-        marker=dict(size=markersize, opacity=alpha_gt_points),
-        showlegend=show_legend
-    ))
+    particle_trace_indices = {}
+    current_trace_index = len(fig.data)
 
-    # Plot generated points at final time (t=last time step)
-    fig.add_trace(go.Scatter(
-        x=xtraj[-1][:, dim0],
-        y=xtraj[-1][:, dim1],
-        mode='markers',
-        name='Generated',
-        marker=dict(size=markersize, opacity=alpha_generated_points),
-        showlegend=show_legend
-    ))
+    # Plot trajectories
+    for trajectory_name, xtraj in trajectory_data.items():
+        particle_color = colors[trajectory_name]['particle_color']
+        trajectory_color = colors[trajectory_name]['trajectory_color']
+        time_steps = xtraj.shape[0]
+        num_points = xtraj.shape[1]
+        indices = np.arange(min(num_trajectories, num_points))
 
-    # Plot trajectory lines for num_trajectories
-    for line_x, line_y in lines_data:
+        # Plot initial points (t=0)
         fig.add_trace(go.Scatter(
-            x=line_x,
-            y=line_y,
-            mode='lines',
-            line=dict(dash='dash', color='green'),
-            opacity=alpha_trajectories,
+            x=xtraj[0, :, dim0],
+            y=xtraj[0, :, dim1],
+            mode='markers',
+            name=f'{trajectory_name} Initial',
+            marker=dict(size=markersize, opacity=alpha_gt_points, color="blue"),
+            showlegend=show_legend
+        ))
+
+        # Plot trajectory lines
+        for i in indices:
+            line_x = xtraj[:, i, dim0]
+            line_y = xtraj[:, i, dim1]
+            fig.add_trace(go.Scatter(
+                x=line_x,
+                y=line_y,
+                mode='lines',
+                name=f'{trajectory_name} Trajectory',
+                line=dict(dash='dash', color=trajectory_color),
+                opacity=alpha_trajectories,
+                showlegend=False
+            ))
+
+        # Add a trace for particles at time t (will be updated in frames)
+        # Start with t=0
+        fig.add_trace(go.Scatter(
+            x=xtraj[0, :, dim0],
+            y=xtraj[0, :, dim1],
+            mode='markers',
+            name=f'{trajectory_name} Particles',
+            marker=dict(size=markersize, color=particle_color),
             showlegend=False
         ))
 
-    # Add a trace for points at time t (will be updated in frames)
-    # Start with t=0
-    fig.add_trace(go.Scatter(
-        x=xtraj[0][:, dim0],
-        y=xtraj[0][:, dim1],
-        mode='markers',
-        name='#Step',
-        marker=dict(size=markersize, color='blue'),
-        showlegend=show_legend
-    ))
-
+        # Store the trace index
+        particle_trace_indices[trajectory_name] = current_trace_index
+        current_trace_index += 1
+    
     # Create frames
     frames = []
-    for t in range(time_steps):
+    for t in range(max_time_steps):
         frame_data = []
-        # Update 'Time t' trace (last trace)
-        frame_data.append(go.Scatter(
-            x=xtraj[t][:, dim0],
-            y=xtraj[t][:, dim1],
-            mode='markers',
-            marker=dict(size=markersize, color='blue'),
-            name=f'#Step={t}',
-            showlegend=False
-        ))
+        frame_trace_indices = []
+        for trajectory_name, xtraj in trajectory_data.items():
+            particle_color = colors[trajectory_name]['particle_color']
+
+            if t >= xtraj.shape[0]:
+                continue
+
+            x = xtraj[t, :, dim0]
+            y = xtraj[t, :, dim1]
+            trace_index = particle_trace_indices[trajectory_name]
+
+            frame_data.append(go.Scatter(
+                x=x,
+                y=y,
+                mode='markers',
+                marker=dict(size=markersize, color=particle_color),
+                opacity=alpha_particles,
+                name=f'{trajectory_name} Particles',
+                showlegend=False
+            ))
+            frame_trace_indices.append(trace_index)
+
         frames.append(go.Frame(
             data=frame_data,
             name=str(t),
-            traces=[len(fig.data) - 1]
+            traces=frame_trace_indices
         ))
 
     # Create slider steps
     slider_steps = []
-    for t in range(time_steps):
+    for t in range(max_time_steps):
         step = dict(
             method='animate',
             args=[[str(t)],
@@ -454,7 +364,7 @@ def visualize_2d_trajectories_plotly(
     # Create sliders
     sliders = [dict(
         active=0,
-        currentvalue={"prefix": "#Step: "},
+        currentvalue={"prefix": "Step: "},
         pad={"t": 50},
         steps=slider_steps
     )]
@@ -475,7 +385,7 @@ def visualize_2d_trajectories_plotly(
         yaxis_title=f'Dimension {dim1}',
         title=title,
         showlegend=show_legend,
-        width=800, 
+        width=800,
         height=600,
     )
 
