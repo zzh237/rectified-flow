@@ -211,14 +211,13 @@ def visualize_2d_trajectories_plotly(
     num_trajectories: int = 50,
     markersize: int = 3,
     dimensions: list[int] = [0, 1],
-    alpha_trajectories: float = 0.3,
-    alpha_particles: float = 0.8,
+    alpha_trajectories: float = 0.5,
+    alpha_particles: float = 1.0,
     alpha_gt_points: float = 1.0,
     show_legend: bool = True,
     title: str = '2D Trajectories Visualization',
 ):
     import plotly.graph_objects as go
-    from plotly.colors import qualitative
 
     dim0, dim1 = dimensions
 
@@ -227,14 +226,22 @@ def visualize_2d_trajectories_plotly(
         D1_gt_samples = D1_gt_samples.clone().to(torch.float32).cpu().detach().numpy()
 
     # Prepare color mapping for trajectories
-    qualitative_colors = qualitative.Plotly
+    particle_colors = [
+        '#1E90FF', '#FF69B4', '#7B68EE', '#FF8C00', '#32CD32', 
+        '#4169E1', '#FF4500', '#9932CC', '#ADFF2F', '#FFD700'
+    ]
+
+    trajectory_colors = [
+        '#8ABDE5', '#E09CAF', '#B494E1', '#E5B680', '#82C9A1',
+        '#92BCD5', '#E68FA2', '#A98FC8', '#E5C389', '#A0C696'
+    ]
+
     trajectory_names = list(trajectories_dict.keys())
     colors = {}
     for i, name in enumerate(trajectory_names):
-        base_color = qualitative_colors[i % len(qualitative_colors)]
         colors[name] = {
-            'particle_color': base_color, 
-            'trajectory_color': base_color
+            'particle_color': particle_colors[i % len(particle_colors)], 
+            'trajectory_color': trajectory_colors[i % len(trajectory_colors)]
         }
 
     # Process trajectories and store data
@@ -260,7 +267,7 @@ def visualize_2d_trajectories_plotly(
             x=D1_gt_samples[:, dim0],
             y=D1_gt_samples[:, dim1],
             mode='markers',
-            name='D1 Ground Truth',
+            name='D1 ground truth',
             marker=dict(size=markersize, opacity=alpha_gt_points, color='red'),
             showlegend=show_legend
         ))
@@ -270,49 +277,57 @@ def visualize_2d_trajectories_plotly(
 
     # Plot trajectories
     for trajectory_name, xtraj in trajectory_data.items():
+        print(f'Plotting {trajectory_name} trajectories...')
         particle_color = colors[trajectory_name]['particle_color']
         trajectory_color = colors[trajectory_name]['trajectory_color']
         time_steps = xtraj.shape[0]
         num_points = xtraj.shape[1]
         indices = np.arange(min(num_trajectories, num_points))
 
+        all_line_x = []
+        all_line_y = []
+
+        # Collect all lines into single lists
+        for i in indices:
+            line_x = xtraj[:, i, dim0]
+            line_y = xtraj[:, i, dim1]
+            # Append the line data and a NaN to separate lines
+            all_line_x.extend(line_x.tolist() + [np.nan])
+            all_line_y.extend(line_y.tolist() + [np.nan])
+
+        # Plot all trajectory lines as a single trace
+        fig.add_trace(go.Scatter(
+            x=all_line_x,
+            y=all_line_y,
+            mode='lines',
+            name=f'{trajectory_name} trajectory',
+            line=dict(dash='solid', color=trajectory_color, width=1.5),
+            opacity=alpha_trajectories,
+            showlegend=True
+        ))
+        current_trace_index += 1
+
+        # Add a trace for particles at time t = 0 (will be updated in frames)
+        fig.add_trace(go.Scatter(
+            x=xtraj[0, :, dim0],
+            y=xtraj[0, :, dim1],
+            mode='markers',
+            name=f'{trajectory_name}',
+            marker=dict(size=markersize, color=particle_color),
+            showlegend=False
+        ))
+        particle_trace_indices[trajectory_name] = current_trace_index
+        current_trace_index += 1
+
         # Plot initial points (t=0)
         fig.add_trace(go.Scatter(
             x=xtraj[0, :, dim0],
             y=xtraj[0, :, dim1],
             mode='markers',
-            name=f'{trajectory_name} Initial',
+            name=f'{trajectory_name} x_0',
             marker=dict(size=markersize, opacity=alpha_gt_points, color="blue"),
-            showlegend=show_legend
-        ))
-
-        # Plot trajectory lines
-        for i in indices:
-            line_x = xtraj[:, i, dim0]
-            line_y = xtraj[:, i, dim1]
-            fig.add_trace(go.Scatter(
-                x=line_x,
-                y=line_y,
-                mode='lines',
-                name=f'{trajectory_name} Trajectory',
-                line=dict(dash='dash', color=trajectory_color),
-                opacity=alpha_trajectories,
-                showlegend=False
-            ))
-
-        # Add a trace for particles at time t (will be updated in frames)
-        # Start with t=0
-        fig.add_trace(go.Scatter(
-            x=xtraj[0, :, dim0],
-            y=xtraj[0, :, dim1],
-            mode='markers',
-            name=f'{trajectory_name} Particles',
-            marker=dict(size=markersize, color=particle_color),
             showlegend=False
         ))
-
-        # Store the trace index
-        particle_trace_indices[trajectory_name] = current_trace_index
         current_trace_index += 1
     
     # Create frames
@@ -336,8 +351,8 @@ def visualize_2d_trajectories_plotly(
                 mode='markers',
                 marker=dict(size=markersize, color=particle_color),
                 opacity=alpha_particles,
-                name=f'{trajectory_name} Particles',
-                showlegend=False
+                name=f'{trajectory_name} x_t',
+                showlegend=True
             ))
             frame_trace_indices.append(trace_index)
 
