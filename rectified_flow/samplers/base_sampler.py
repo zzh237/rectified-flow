@@ -181,7 +181,7 @@ class Sampler:
             num_samples (`int`, *optional*): 
                 Number of samples to generate. If not provided, it must be specified in the constructor or inferred from `x_0`.
             x_0 (`torch.Tensor`, *optional*): 
-                Initial samples from the source distribution `π₀`. If not provided, samples are drawn from `rectified_flow.sample_source_distribution`.
+                Initial samples from the source distribution `pi_0`. If not provided, samples are drawn from `rectified_flow.sample_source_distribution`.
             seed (`int`, *optional*): 
                 Random seed for reproducibility.
             num_steps (`int`, *optional*): 
