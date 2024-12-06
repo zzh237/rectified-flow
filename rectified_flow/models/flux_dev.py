@@ -258,6 +258,7 @@ class FluxWrapper:
 
         return flux_velocity
 
+    @torch.inference_mode()
     def decode(
         self,
         dit_latents: Tensor,
@@ -282,6 +283,7 @@ class FluxWrapper:
         images = decode_imgs(latents, self.pipeline)[0]
         return images
 
+    @torch.inference_mode()
     def encode(
         self,
         images: Tensor,
