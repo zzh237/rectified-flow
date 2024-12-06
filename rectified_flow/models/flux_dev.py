@@ -240,7 +240,7 @@ class FluxWrapper:
                         prompt=prompt,
                         prompt_2=prompt,
                     )
-                    print(f"Prompt {prompt} encoded.")
+                    print(f"Prompt \"{prompt}\" encoded.")
 
         flux_velocity = self.pipeline.transformer(
             hidden_states=x_t,
