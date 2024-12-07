@@ -13,6 +13,8 @@ class AnalyticGaussianVelocity(nn.Module):
         interp: AffineInterp,
     ):
         super().__init__()
+        self.data_shape = dataset.shape[1:]
+        dataset = dataset.detach().clone().reshape(dataset.shape[0], -1)
         self.dataset = nn.Parameter(dataset.detach().clone())  # (N_data, D)
         self.dataset.requires_grad = False
         self.dataset_norm = self.dataset.norm(dim=1).pow(2)
@@ -28,8 +30,9 @@ class AnalyticGaussianVelocity(nn.Module):
         x_t shape: (Batch, D)
         a_t, dot_a_t, b_t, dot_b_t shape: (Batch,)
         """
-        shape = x_t.shape
-        x_t = x_t.reshape(1, -1)  # (Batch, D)
+        assert x_t.shape[1:] == self.data_shape, f"x_t shape: {x_t.shape}, data_shape: {self.data_shape}"
+
+        x_t = x_t.reshape(x_t.shape[0], -1) # (Batch, D)
 
         term_1 = x_t.norm(dim=1).pow(2)
         term_2 = torch.einsum("bd, nd -> bn", [x_t, self.dataset])
@@ -52,4 +55,4 @@ class AnalyticGaussianVelocity(nn.Module):
         # print(v.shape)
         # print(f"weighted_dataset: {weighted_dataset.shape}")  # weighted_dataset: (Batch, D)
 
-        return v.reshape(shape)
+        return v.reshape(self.data_shape)

@@ -120,11 +120,6 @@ class Sampler:
 
         return num_steps, time_grid
 
-    def get_velocity(self, **model_kwargs):
-        x_t, t = self.x_t, self.t
-        t = match_dim_with_data(t, x_t.shape, x_t.device, x_t.dtype, expand_dim=False)
-        return self.rectified_flow.get_velocity(x_t, t, **model_kwargs)
-
     def step(self, **model_kwargs):
         r"""Perform a single integration step.
         This method should be overridden by subclasses to implement specific integration schemes.

@@ -455,7 +455,7 @@ def main(args):
         train_time_distribution = args.train_time_distribution,
         train_time_weight = args.train_time_weight,
         criterion = args.criterion,
-        model = model,
+        velocity_field = model,
         device = accelerator.device,
         dtype = weight_dtype,
     )

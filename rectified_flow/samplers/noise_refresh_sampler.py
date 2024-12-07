@@ -32,7 +32,7 @@ class NoiseRefreshSampler(Sampler):
     def step(self, **model_kwargs):
         """Perform a single step of the sampling process."""
         t, t_next, x_t = self.t, self.t_next, self.x_t
-        v_t = self.get_velocity(**model_kwargs)
+        v_t = self.rectified_flow.get_velocity(x_t, t, **model_kwargs)
         dtype = v_t.dtype
         x_t = x_t.to(torch.float32)
         v_t = v_t.to(torch.float32)
