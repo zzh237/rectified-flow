@@ -212,6 +212,7 @@ class AffineInterp(nn.Module):
             name = 'spherical'
         elif name.lower() in ['ddim', 'ddpm']:
             # DDIM/DDPM scheme; see Eq 7 in https://arxiv.org/pdf/2209.03003
+            # Note in VP-ODE, dot_beta_t will explode at t = 1
             a = 19.9
             b = 0.1
             alpha = lambda t: torch.exp(-a * (1 - t) ** 2 / 4.0 - b * (1 - t) / 2.0)

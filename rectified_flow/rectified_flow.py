@@ -160,9 +160,9 @@ class RectifiedFlow:
         x_t, dot_x_t = self.interp.forward(x_0, x_1, t, detach=True)
         return x_t, dot_x_t
 
-    def get_velocity(
+    def  get_velocity(
         self,
-        x_t: torch.Tensor,
+        x_t: torch.Tensor | float | List[float],
         t: torch.Tensor,
         **kwargs,
     ):
@@ -173,8 +173,11 @@ class RectifiedFlow:
             x_t (`torch.Tensor`): 
                 The state `X_t` at which to compute the velocity, with shape `(B, D_1, D_2, ..., D_n)`, 
                 where `B` is the batch size, and `D_1, D_2, ..., D_n` are the data dimensions.
-            t (`torch.Tensor`): 
-                A tensor of time steps, with shape `(B,)`, where each value is in the range `[0, 1]`.
+            t (`torch.Tensor` | `float` | `List[float]`):
+                Time tensor, which can be:
+                - A scalar (`float` or 0-dimensional `torch.Tensor`)
+                - A list of floats with length equal to the batch size or length 1
+                - A `torch.Tensor` of shape `(B,)`, `(B, 1)`, or `(1,)`
             **kwargs: 
                 Additional keyword arguments to pass to the velocity field model.
 

@@ -86,7 +86,7 @@ class SDESampler(Sampler):
 
     def step(self, **model_kwargs):
         t, t_next, x_t = self.t, self.t_next, self.x_t
-        v_t = self.get_velocity(**model_kwargs)
+        v_t = self.rectified_flow.get_velocity(x_t, t, **model_kwargs)
         step_size = t_next - t
 
         # Solve for x_0 and x_1 given x_t and v_t
