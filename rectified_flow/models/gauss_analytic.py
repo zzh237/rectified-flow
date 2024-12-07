@@ -30,9 +30,9 @@ class AnalyticGaussianVelocity(nn.Module):
         x_t shape: (Batch, D)
         a_t, dot_a_t, b_t, dot_b_t shape: (Batch,)
         """
-        assert x_t.shape == self.data_shape, f"x_t shape: {x_t.shape}, data_shape: {self.data_shape}"
+        assert x_t.shape[1:] == self.data_shape, f"x_t shape: {x_t.shape}, data_shape: {self.data_shape}"
 
-        x_t = x_t.reshape(1, -1)  # (Batch, D)
+        x_t = x_t.reshape(x_t.shape[0], -1) # (Batch, D)
 
         term_1 = x_t.norm(dim=1).pow(2)
         term_2 = torch.einsum("bd, nd -> bn", [x_t, self.dataset])
