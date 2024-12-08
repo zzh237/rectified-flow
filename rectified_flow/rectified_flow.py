@@ -318,10 +318,11 @@ class RectifiedFlow:
 
     def get_sde_params_by_sigma(self, v_t, x_t, t, sigma):
         # SDE coeffs for dX_t = v_t(X_t) + sigma_t^2*Dlogp(X_t) + sqrt(2)*sigma_t*dWt
-        self.assert_canonical()
+        if not self.independent_coupling or not self.is_pi_0_gaussian:
+            warnings.warning('The formula is theoretically correct only for independent couplings and Gaussian pi0, use at your own risk')
         sigma_t = sigma(t)
-        self.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
-        dlogp = - self.interp.x0 / self.interp.bt
+        result = self.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
+        dlogp = - result.x_0 / result.b_t
         v_t_sde = v_t + sigma_t**2 * dlogp
         return v_t_sde, sigma_t * 2**0.5
     
@@ -329,12 +330,13 @@ class RectifiedFlow:
         # From SDE coeffs for dX = v_t(Xt) -sigma_t^2*E[X0|Xt]/bt + sqrt(2)*sigma_t*dWt,
         # let et^2 = sigmat^2/bt, we have sigmat = sqrt(bt) * et, we have:
         # dX = v_t(Xt) - et^2*E[X0|Xt]+ sqrt(2*bt) * et *dWt
-        self.assert_canonical()
-        self.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
+        if not self.independent_coupling or not self.is_pi_0_gaussian:
+            warnings.warning('The formula is theoretically correct only for independent couplings and Gaussian pi0, use at your own risk')
+        result = self.interp.solve(t=t, x_t=x_t, dot_x_t=v_t)
         et = e(self.match_dim_with_data(t, x_t.shape, device=x_t.device, dtype=x_t.dtype))
-        x0_pred  = - self.interp.x0/self.interp.bt
+        x0_pred  = - result.x_0 / result.b_t
         v_t_sde = v_t - x0_pred * et**2
-        sigma_t = et * self.interp.bt**0.5 * (2**0.5)
+        sigma_t = et * result.b_t**0.5 * (2**0.5)
         # at, bt, dot_at, dot_bt = self.interp.get_coeffs(t)
         # v_t_sde =v_t * (1+et) - et * dot_at / at * xt
         # sigma_t_sde = (2 * (1-at) * dot_at/(at) * et)**(0.5)
