@@ -118,6 +118,24 @@ img = traj[-1]
 3. **Interpolation**: This [notebook](examples/interpolation_conversion.ipynb) first illustrates the idea that different interpolations $\{X_t\}$ can be converted from one another and presents a simple implementation to achieve this conversion. It also reveals the interesting fact that the very same transformation applies to $\{Z_t\}$, along with a few notable findings.
 4. **Flux**: We provide a [notebook](examples/inference_flux_dev.ipynb) that shows how to easily interact with the wrapped Flux model using different samplers. Additionally, another [notebook](examples/editing_flux_dev.ipynb) demonstrates how to perform image editing task with Flux. All in a straightforward and friendly manner.
 
+## Training Pipelines
+
+We provide training scripts for [UNet](https://github.com/NVlabs/edm) and [DiT](https://github.com/facebookresearch/DiT) in the `rectified_flow/pipelines` directory. The training scripts utilizes **Accelerate** for multi-GPU training.
+
+**Results Using this Training Scripts**:
+
+- **UNet CIFAR10**: Trained for $500 \text{k}$ iterations with `batch_size=128`. You can download the model [here](). $\text{FID}_{50\text{K}}=4.308$.
+- **DiT CIFAR10**: Trained for $1000 \text{k}$ iterations with `batch_size=128`. You can download the model [here](). $\text{FID}_{50\text{K}}=3.678$.
+
+**Loading a Pretrained Model**:
+
+To construct a model from a pretrained checkpoint, simply run the following code:
+
+```python
+from rectified_flow.models.dit import DiT
+
+model = DiT.from_pretrained(save_directory="PATH_TO_MODEL", filename="dit", use_ema=True).to(device)
+```
 
 # Customize Your Component
 
