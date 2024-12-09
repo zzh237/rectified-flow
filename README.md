@@ -2,14 +2,8 @@
 
 <img src="assets/logo.svg" alt="Logo" style="width: 75%; height: auto;">
 
-<p align="center">
-<a href="https://rectifiedflow.github.io">
-<img alt="blog" src="https://img.shields.io/badge/blog-blue" />
-</a>
-
-<a href="https://arxiv.org/pdf/2209.03003.pdf">
-<img alt="book" src="https://img.shields.io/badge/book-blue" />
-</a>
+[![Blog](https://img.shields.io/badge/blog-blue)](https://rectifiedflow.github.io)
+[![Book](https://img.shields.io/badge/book-blue)](https://arxiv.org/pdf/2209.03003.pdf)
 
 ______________________________________________________________________
 
