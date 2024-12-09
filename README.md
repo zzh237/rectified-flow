@@ -31,6 +31,7 @@ Whether you are a researcher exploring the frontiers of generative modeling or a
 - [Getting Started](#getting-started)
   - [A Quick Walkthrough](#a-quick-walkthrough)
   - [Interactive Tutorials](#interactive-tutorials)
+  - [Training Pipelines](#training-pipelines)
 - [Customize Your Component](#customize-your-component)
   - [Wrapping a New Velocity](#wrapping-a-new-velocity)
   - [Interpolation](#interpolation)
@@ -120,7 +121,7 @@ img = traj[-1]
 
 ## Training Pipelines
 
-We provide training scripts for [UNet](https://github.com/NVlabs/edm) and [DiT](https://github.com/facebookresearch/DiT) in the `rectified_flow/pipelines` directory. The training scripts utilizes **Accelerate** for multi-GPU training.
+We provide **[Diffusers](https://github.com/huggingface/diffusers)-style** training scripts for [UNet](https://github.com/NVlabs/edm). and [DiT](https://github.com/facebookresearch/DiT) in the `rectified_flow/pipelines` directory. The training scripts utilizes **Accelerate** for multi-GPU training.
 
 **Results Using this Training Scripts**:
 
