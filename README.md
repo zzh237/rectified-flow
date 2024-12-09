@@ -69,9 +69,9 @@ todo
 If you find this repository useful for your research, please consider citing
 
 ```bibtex
-@misc{liu2024rectifiedflow,
+@misc{lq2024rectifiedflow,
   author = {Qiang Liu, Runlong Liao, Bo Liu, Xixi Hu},
-  title = {RectifiedFlow},
+  title = {PyTorch RectifiedFlow},
   year = {2024},
   url = {https://github.com/lqiang67/rectified-flow}
 }
