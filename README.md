@@ -26,8 +26,6 @@ Whether you are a researcher exploring the frontiers of generative modeling or a
 
 ---
 
-
-# Contents
 # Contents
 - [Installation](#installation)
 - [Getting Started](#getting-started)
@@ -63,7 +61,7 @@ pip install -e .
 # Getting Started
 
 ## A Quick Walkthrough
-The `RectifiedFlow` class serves as an **intermediary** for your training and inference processes. For each different velocity field, you should instantiate a separate `RectifiedFlow` class.
+The `RectifiedFlow` class serves as an **intermediary** for your training and inference processes. Each different velocity field should instantiate a separate `RectifiedFlow` class.
 
 ```python
 from rectified_flow.rectified_flow import RectifiedFlow
