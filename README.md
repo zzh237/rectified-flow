@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="Logo" style="width: 75%; height: auto;">
+<img src="assets/cat_logo.png" alt="Logo" style="width: 100%; height: auto;">
 
 </div>
 
