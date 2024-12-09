@@ -10,7 +10,7 @@ ______________________________________________________________________
 </div>
 
 
-**Rectified Flows** is a repository that presents a *unified* and *minimal* codebase for implementing various diffusion and flow models, including [Rectified Flow](https://arxiv.org/pdf/2209.03003.pdf), [DDPM](https://arxiv.org/abs/2006.11239.pdf), [DDIM](https://arxiv.org/abs/2010.02502.pdf), etc.
+**RectifiedFlow** is a repository that presents a *unified* and *minimal* codebase for implementing various diffusion and flow models, including [Rectified Flow](https://arxiv.org/pdf/2209.03003.pdf), [DDPM](https://arxiv.org/abs/2006.11239.pdf), [DDIM](https://arxiv.org/abs/2010.02502.pdf), etc.
 
 ---
 
