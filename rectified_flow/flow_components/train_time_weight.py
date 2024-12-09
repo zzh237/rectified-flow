@@ -15,6 +15,8 @@ class TrainTimeWeight:
         if self.weight == "uniform":
             wts = torch.ones_like(t)
         else:
-            raise NotImplementedError(f"Time weight '{self.weight}' is not implemented.")
-        
+            raise NotImplementedError(
+                f"Time weight '{self.weight}' is not implemented."
+            )
+
         return wts

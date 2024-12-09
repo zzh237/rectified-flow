@@ -12,7 +12,9 @@ class TrainTimeSampler:
     def u_shaped_t(num_samples, alpha=4.0):
         alpha = torch.tensor(alpha, dtype=torch.float32)
         u = torch.rand(num_samples)
-        t = -torch.log(1 - u * (1 - torch.exp(-alpha))) / alpha  # inverse cdf = torch.log(u * (torch.exp(torch.tensor(a)) - 1) / a) / a
+        t = (
+            -torch.log(1 - u * (1 - torch.exp(-alpha))) / alpha
+        )  # inverse cdf = torch.log(u * (torch.exp(torch.tensor(a)) - 1) / a) / a
         t = torch.cat([t, 1 - t], dim=0)
         t = t[torch.randperm(t.shape[0])]
         t = t[:num_samples]
@@ -38,6 +40,8 @@ class TrainTimeSampler:
         elif self.distribution == "u_shaped":
             t = self.u_shaped_t(batch_size).to(device=device, dtype=dtype)
         else:
-            raise NotImplementedError(f"Time distribution '{self.dist}' is not implemented.")
-        
+            raise NotImplementedError(
+                f"Time distribution '{self.dist}' is not implemented."
+            )
+
         return t

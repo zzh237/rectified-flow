@@ -4,6 +4,7 @@ from torch.distributions import Distribution, Normal
 from typing import Optional, List, Dict, Union
 from functools import partial
 
+
 class CouplingDataset(Dataset):
     def __init__(
         self,
@@ -32,13 +33,15 @@ class CouplingDataset(Dataset):
         self.condition = condition
 
         # Determine modes for D1 and D0
-        self.D1_mode = 'tensor' if isinstance(D1, torch.Tensor) else 'distribution'
-        
+        self.D1_mode = "tensor" if isinstance(D1, torch.Tensor) else "distribution"
+
         if self.D0 is None and not self.reflow:
             self.D0 = self._set_default_noise()
-            self.D0_mode = 'distribution'
+            self.D0_mode = "distribution"
         else:
-            self.D0_mode = 'tensor' if isinstance(self.D0, torch.Tensor) else 'distribution'
+            self.D0_mode = (
+                "tensor" if isinstance(self.D0, torch.Tensor) else "distribution"
+            )
 
         self.length = self._determine_length()
 
@@ -59,11 +62,14 @@ class CouplingDataset(Dataset):
 
     def _determine_length(self):
         if self.reflow:
-            assert isinstance(self.D0, torch.Tensor) and isinstance(self.D1, torch.Tensor), \
-                "When reflow=True, D0 and D1 must be tensors"
+            assert isinstance(self.D0, torch.Tensor) and isinstance(
+                self.D1, torch.Tensor
+            ), "When reflow=True, D0 and D1 must be tensors"
             len_D0 = len(self.D0)
             len_D1 = len(self.D1)
-            assert len_D0 == len_D1, "D0 and D1 must have the same length when reflow=True"
+            assert (
+                len_D0 == len_D1
+            ), "D0 and D1 must have the same length when reflow=True"
             return len_D0
         else:
             if isinstance(self.D1, torch.Tensor):
@@ -83,16 +89,16 @@ class CouplingDataset(Dataset):
         if self.reflow:
             X0 = self._get_sample(self.D0, index, self.D0_mode)
         else:
-            if self.D0_mode == 'distribution':
+            if self.D0_mode == "distribution":
                 X0 = None  # Will be handled in collate_fn
             else:
                 X0 = self._get_sample(self.D0, index, self.D0_mode)
         return X0, X1, condition
 
     def _get_sample(self, D, index, mode):
-        if mode == 'tensor':
+        if mode == "tensor":
             return D[index]
-        elif mode == 'distribution':
+        elif mode == "distribution":
             # Return None, sample in collate_fn
             return None
         else:
@@ -100,18 +106,22 @@ class CouplingDataset(Dataset):
 
     def _validate_inputs(self):
         if self.reflow:
-            assert isinstance(self.D0, torch.Tensor) and isinstance(self.D1, torch.Tensor), \
-                "When reflow=True, D0 and D1 must be tensors"
+            assert isinstance(self.D0, torch.Tensor) and isinstance(
+                self.D1, torch.Tensor
+            ), "When reflow=True, D0 and D1 must be tensors"
             if self.condition is not None:
-                assert len(self.condition) == self.length, \
-                    "Length of condition must match length of D1"
+                assert (
+                    len(self.condition) == self.length
+                ), "Length of condition must match length of D1"
         else:
             if isinstance(self.D1, torch.Tensor):
                 if self.condition is not None:
-                    assert len(self.condition) == len(self.D1), \
-                        "Length of condition must match length of D1"
+                    assert len(self.condition) == len(
+                        self.D1
+                    ), "Length of condition must match length of D1"
 
     default_length = 10000
+
 
 # Custom collate function
 def coupling_collate_fn(batch, D0_distribution=None, D1_distribution=None):

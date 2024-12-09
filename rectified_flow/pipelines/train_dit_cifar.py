@@ -15,7 +15,11 @@ import torchvision
 from dataclasses import dataclass, asdict
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from accelerate.utils import DistributedDataParallelKwargs, ProjectConfiguration, set_seed
+from accelerate.utils import (
+    DistributedDataParallelKwargs,
+    ProjectConfiguration,
+    set_seed,
+)
 from diffusers.optimization import get_scheduler
 
 from torchvision import transforms
@@ -37,7 +41,9 @@ class EMAModel:
     def update(self):
         for name, param in self.model.named_parameters():
             if name in self.shadow:
-                self.shadow[name].mul_(self.decay).add_(param.data, alpha=1 - self.decay)
+                self.shadow[name].mul_(self.decay).add_(
+                    param.data, alpha=1 - self.decay
+                )
             else:
                 self.shadow[name] = param.data.clone()
                 print(f"Warning: EMA shadow does not contain parameter {name}")
@@ -51,16 +57,20 @@ class EMAModel:
     def load_pretrained(self, save_directory: str, filename: str = "dit"):
         output_model_file = os.path.join(save_directory, f"{filename}_ema.pt")
         if os.path.exists(output_model_file):
-            state_dict = torch.load(output_model_file, map_location='cpu')
+            state_dict = torch.load(output_model_file, map_location="cpu")
             mapped_state_dict = {}
             for name, param in state_dict.items():
                 if name in self.model.state_dict():
                     model_param = self.model.state_dict()[name]
-                    mapped_state_dict[name] = param.to(device=model_param.device, dtype=model_param.dtype)
+                    mapped_state_dict[name] = param.to(
+                        device=model_param.device, dtype=model_param.dtype
+                    )
                 else:
                     print(f"Warning: {name} not found in model's state_dict.")
             self.shadow = mapped_state_dict
-            print(f"EMA weights loaded from {output_model_file} and mapped to model's device and dtype.")
+            print(
+                f"EMA weights loaded from {output_model_file} and mapped to model's device and dtype."
+            )
         else:
             print(f"No EMA weights found at {output_model_file}")
 
@@ -134,7 +144,9 @@ def parse_args():
         action="store_true",
         help="Whether to use an exponential moving average of the model weights.",
     )
-    parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
+    parser.add_argument(
+        "--seed", type=int, default=None, help="A seed for reproducible training."
+    )
     parser.add_argument(
         "--resolution",
         type=int,
@@ -150,7 +162,10 @@ def parse_args():
         help="whether to randomly flip images horizontally",
     )
     parser.add_argument(
-        "--train_batch_size", type=int, default=64, help="Batch size (per device) for the training dataloader."
+        "--train_batch_size",
+        type=int,
+        default=64,
+        help="Batch size (per device) for the training dataloader.",
     )
     parser.add_argument(
         "--mixed_precision",
@@ -164,7 +179,10 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--sample_batch_size", type=int, default=4, help="Batch size (per device) for sampling images."
+        "--sample_batch_size",
+        type=int,
+        default=4,
+        help="Batch size (per device) for sampling images.",
     )
     parser.add_argument("--num_train_epochs", type=int, default=1)
     parser.add_argument(
@@ -231,7 +249,10 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler."
+        "--lr_warmup_steps",
+        type=int,
+        default=500,
+        help="Number of steps for the warmup in the lr scheduler.",
     )
     parser.add_argument(
         "--lr_num_cycles",
@@ -239,7 +260,12 @@ def parse_args():
         default=1,
         help="Number of hard resets of the lr in cosine_with_restarts scheduler.",
     )
-    parser.add_argument("--lr_power", type=float, default=1.0, help="Power factor of the polynomial scheduler.")
+    parser.add_argument(
+        "--lr_power",
+        type=float,
+        default=1.0,
+        help="Power factor of the polynomial scheduler.",
+    )
     parser.add_argument(
         "--dataloader_num_workers",
         type=int,
@@ -249,12 +275,23 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam and Prodigy optimizers."
+        "--adam_beta1",
+        type=float,
+        default=0.9,
+        help="The beta1 parameter for the Adam and Prodigy optimizers.",
     )
     parser.add_argument(
-        "--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam and Prodigy optimizers."
+        "--adam_beta2",
+        type=float,
+        default=0.999,
+        help="The beta2 parameter for the Adam and Prodigy optimizers.",
     )
-    parser.add_argument("--adam_weight_decay", type=float, default=1e-04, help="Weight decay to use for unet params")
+    parser.add_argument(
+        "--adam_weight_decay",
+        type=float,
+        default=1e-04,
+        help="Weight decay to use for unet params",
+    )
 
     parser.add_argument(
         "--adam_epsilon",
@@ -262,7 +299,9 @@ def parse_args():
         default=1e-08,
         help="Epsilon value for the Adam optimizer and Prodigy optimizers.",
     )
-    parser.add_argument("--max_grad_norm", default=1.0, type=float, help="Max gradient norm.")
+    parser.add_argument(
+        "--max_grad_norm", default=1.0, type=float, help="Max gradient norm."
+    )
     parser.add_argument(
         "--logging_dir",
         type=str,
@@ -289,16 +328,24 @@ def parse_args():
             ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
         ),
     )
-    parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
+    parser.add_argument(
+        "--local_rank",
+        type=int,
+        default=-1,
+        help="For distributed training: local_rank",
+    )
 
     args = parser.parse_args()
 
     return args
 
+
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
-    accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
+    accelerator_project_config = ProjectConfiguration(
+        project_dir=args.output_dir, logging_dir=logging_dir
+    )
     kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
 
     accelerator = Accelerator(
@@ -334,47 +381,55 @@ def main(args):
 
     if args.scale_lr:
         args.learning_rate = (
-            args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
+            args.learning_rate
+            * args.gradient_accumulation_steps
+            * args.train_batch_size
+            * accelerator.num_processes
         )
 
     # 1.1 Prepare models
     logger.info("******  preparing models  ******")
 
     DiT_config = DiTConfig(
-        input_size = args.resolution,
-        patch_size = 2,
-        in_channels = 3,
-        out_channels = 3,
-        hidden_size = 512,
-        depth = 13,
-        num_heads = 8,
-        mlp_ratio = 4,
-        num_classes = 0,
-        use_long_skip = True,
-        final_conv = False,
+        input_size=args.resolution,
+        patch_size=2,
+        in_channels=3,
+        out_channels=3,
+        hidden_size=512,
+        depth=13,
+        num_heads=8,
+        mlp_ratio=4,
+        num_classes=0,
+        use_long_skip=True,
+        final_conv=False,
     )
     model = DiT(DiT_config)
-    
+
     model.to(accelerator.device, dtype=weight_dtype)
     model.train().requires_grad_(True)
 
     if args.use_ema:
         model_ema = EMAModel(model)
 
-    
     # 2. Prepare datasets
     logger.info("******  preparing datasets  ******")
 
     transform_list = []
     if args.random_flip:
         transform_list.append(transforms.RandomHorizontalFlip())
-    transform_list.extend([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True)
-    ])
+    transform_list.extend(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True
+            ),
+        ]
+    )
     transform = transforms.Compose(transform_list)
 
-    train_dataset = torchvision.datasets.CIFAR10(root=args.data_root, train=True, download=False, transform=transform)
+    train_dataset = torchvision.datasets.CIFAR10(
+        root=args.data_root, train=True, download=False, transform=transform
+    )
     logger.info(f"Train dataset size: {len(train_dataset)}, root: {args.data_root}")
 
     train_dataloader = torch.utils.data.DataLoader(
@@ -384,16 +439,15 @@ def main(args):
         num_workers=4,
     )
 
-
     # 3. Prepare optimizers
     model_params_with_lr = {"params": model.parameters(), "lr": args.learning_rate}
     params_to_optimize = [model_params_with_lr]
 
     optimizer = torch.optim.AdamW(
         params_to_optimize,
-        betas = (args.adam_beta1, args.adam_beta2),
-        weight_decay = args.adam_weight_decay,
-        eps = args.adam_epsilon,
+        betas=(args.adam_beta1, args.adam_beta2),
+        weight_decay=args.adam_weight_decay,
+        eps=args.adam_epsilon,
     )
 
     lr_scheduler = get_scheduler(
@@ -406,11 +460,12 @@ def main(args):
     )
 
     overrode_max_train_steps = False
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
-    
 
     # 4. Prepare for training
     logger.info("******  preparing for training  ******")
@@ -429,14 +484,14 @@ def main(args):
     def load_model_hook(models, input_dir):
         for _ in range(len(models)):
             model = models.pop()
-            print(type(model)) 
+            print(type(model))
 
             if isinstance(accelerator.unwrap_model(model), DiT):
                 load_model = DiT.from_pretrained(input_dir, filename="dit")
                 model.load_state_dict(load_model.state_dict())
             else:
                 raise ValueError(f"Wrong model supplied: {type(model)=}.")
-            
+
             del load_model
 
     accelerator.register_save_state_pre_hook(save_model_hook)
@@ -448,20 +503,22 @@ def main(args):
 
     # wrap up rectified_flow after accelerator.prepare
     rectified_flow = RectifiedFlow(
-        data_shape = (3, args.resolution, args.resolution),
-        interp = args.interp,
-        source_distribution = args.source_distribution,
-        is_independent_coupling = args.is_independent_coupling,
-        train_time_distribution = args.train_time_distribution,
-        train_time_weight = args.train_time_weight,
-        criterion = args.criterion,
-        velocity_field = model,
-        device = accelerator.device,
-        dtype = weight_dtype,
+        data_shape=(3, args.resolution, args.resolution),
+        interp=args.interp,
+        source_distribution=args.source_distribution,
+        is_independent_coupling=args.is_independent_coupling,
+        train_time_distribution=args.train_time_distribution,
+        train_time_weight=args.train_time_weight,
+        criterion=args.criterion,
+        velocity_field=model,
+        device=accelerator.device,
+        dtype=weight_dtype,
     )
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     if overrode_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
@@ -471,14 +528,20 @@ def main(args):
         tracker_name = "1rf-dit-cifar"
         accelerator.init_trackers(tracker_name, config=vars(args))
 
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = (
+        args.train_batch_size
+        * accelerator.num_processes
+        * args.gradient_accumulation_steps
+    )
 
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num batches each epoch = {len(train_dataloader)}")
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
     logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(
+        f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}"
+    )
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
     global_step = 0
@@ -514,7 +577,7 @@ def main(args):
         range(0, args.max_train_steps),
         initial=initial_global_step,
         desc="Steps",
-        disable=not accelerator.is_local_main_process, # Only show the progress bar once on each machine.
+        disable=not accelerator.is_local_main_process,  # Only show the progress bar once on each machine.
     )
 
     for epoch in range(first_epoch, args.num_train_epochs):
@@ -529,7 +592,7 @@ def main(args):
                 t = rectified_flow.sample_train_time(x_1.shape[0])
 
                 loss = rectified_flow.get_loss(
-                    x_0=x_0, 
+                    x_0=x_0,
                     x_1=x_1,
                     t=t,
                 )
@@ -539,11 +602,11 @@ def main(args):
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
-            
+
             if accelerator.sync_gradients:
                 progress_bar.update(1)
                 global_step += 1
-                
+
                 if args.use_ema:
                     model_ema.update()
 
@@ -551,19 +614,31 @@ def main(args):
                     if global_step % args.checkpointing_steps == 0:
                         if args.checkpoints_total_limit is not None:
                             checkpoints = os.listdir(args.output_dir)
-                            checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
-                            checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
+                            checkpoints = [
+                                d for d in checkpoints if d.startswith("checkpoint")
+                            ]
+                            checkpoints = sorted(
+                                checkpoints, key=lambda x: int(x.split("-")[1])
+                            )
                             if len(checkpoints) >= args.checkpoints_total_limit:
-                                num_to_remove = len(checkpoints) - args.checkpoints_total_limit + 1
+                                num_to_remove = (
+                                    len(checkpoints) - args.checkpoints_total_limit + 1
+                                )
                                 removing_checkpoints = checkpoints[0:num_to_remove]
                                 logger.info(
                                     f"{len(checkpoints)} checkpoints already exist, removing {len(removing_checkpoints)} checkpoints"
                                 )
-                                logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
+                                logger.info(
+                                    f"removing checkpoints: {', '.join(removing_checkpoints)}"
+                                )
                                 for removing_checkpoint in removing_checkpoints:
-                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                                    removing_checkpoint = os.path.join(
+                                        args.output_dir, removing_checkpoint
+                                    )
                                     shutil.rmtree(removing_checkpoint)
-                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                        save_path = os.path.join(
+                            args.output_dir, f"checkpoint-{global_step}"
+                        )
 
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
@@ -573,7 +648,7 @@ def main(args):
                             logger.info(f"Saved EMA model to {save_path}")
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
-            
+
             progress_bar.set_postfix(**logs)
             accelerator.log(logs, step=global_step)
 
@@ -582,7 +657,7 @@ def main(args):
 
         if accelerator.is_main_process:
             if epoch % args.validation_epochs == 0:
-                pass # will implement later
+                pass  # will implement later
 
     accelerator.end_training()
 

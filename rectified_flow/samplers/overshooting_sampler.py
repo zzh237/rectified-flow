@@ -3,6 +3,7 @@ from .base_sampler import Sampler
 from rectified_flow.rectified_flow import RectifiedFlow
 from typing import Callable
 
+
 class OverShootingSampler(Sampler):
     def __init__(
         self,
@@ -16,11 +17,11 @@ class OverShootingSampler(Sampler):
         overshooting_method: str | Callable = "t + dt * (1 - t)",
     ):
         super().__init__(
-            rectified_flow, 
-            num_steps, 
-            time_grid, 
-            record_traj_period, 
-            callbacks, 
+            rectified_flow,
+            num_steps,
+            time_grid,
+            record_traj_period,
+            callbacks,
             num_samples,
         )
 
@@ -34,10 +35,15 @@ class OverShootingSampler(Sampler):
             except SyntaxError:
                 raise ValueError(f"Invalid overshooting method: {overshooting_method}")
         else:
-            raise ValueError("Invalid overshooting method provided. Must be a string or callable.")
+            raise ValueError(
+                "Invalid overshooting method provided. Must be a string or callable."
+            )
 
         # Ensure rf meets required conditions
-        if not (self.rectified_flow.is_pi_0_zero_mean_gaussian and self.rectified_flow.independent_coupling):
+        if not (
+            self.rectified_flow.is_pi_0_zero_mean_gaussian
+            and self.rectified_flow.independent_coupling
+        ):
             raise ValueError(
                 "pi0 must be a zero-mean Gaussian distribution, and the coupling must be independent."
             )
@@ -63,7 +69,7 @@ class OverShootingSampler(Sampler):
 
         # Apply noise to step back to t_next
         a_t = alpha(t_next) / alpha(t_overshoot)
-        b_t = (beta(t_next)**2 - (a_t * beta(t_overshoot))**2)**0.5
+        b_t = (beta(t_next) ** 2 - (a_t * beta(t_overshoot)) ** 2) ** 0.5
         noise = self.rectified_flow.sample_source_distribution(self.num_samples)
         noise = noise.to(torch.float32)
 

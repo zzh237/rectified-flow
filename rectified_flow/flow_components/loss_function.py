@@ -13,7 +13,7 @@ class RectifiedFlowLossFunction:
             loss_type (str): Type of loss to use. Default is "mse".
         """
         self.loss_type = loss_type
-    
+
     def __call__(
         self,
         v_t: torch.Tensor,
@@ -36,9 +36,13 @@ class RectifiedFlowLossFunction:
             torch.Tensor: Computed loss value.
         """
         if self.loss_type == "mse":
-            per_instance_loss = torch.mean((v_t - dot_x_t)**2, dim=list(range(1, v_t.dim())))
+            per_instance_loss = torch.mean(
+                (v_t - dot_x_t) ** 2, dim=list(range(1, v_t.dim()))
+            )
             loss = torch.mean(time_weights * per_instance_loss)
         else:
-            raise NotImplementedError(f"Loss function '{self.loss_type}' is not implemented.")
-        
+            raise NotImplementedError(
+                f"Loss function '{self.loss_type}' is not implemented."
+            )
+
         return loss
