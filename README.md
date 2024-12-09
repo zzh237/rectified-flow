@@ -2,22 +2,20 @@
 
 <img src="assets/logo.svg" alt="Logo" style="width: 75%; height: auto;">
 
+[[Blogs]](https://rectifiedflow.github.io)
+[[Book]](https://arxiv.org/pdf/2209.03003.pdf)
+______________________________________________________________________
+
 </div>
 
-____________________________________________________________
 
-
-**Rectified Flows** is a repository that presents a unified and minimal codebase for implementing various diffusion and flow models.
+**Rectified Flows** is a repository that presents a *unified* and *minimal* codebase for implementing various diffusion and flow models, including [Rectified Flow](https://arxiv.org/pdf/2209.03003.pdf), [DDPM](https://arxiv.org/abs/2006.11239.pdf), [DDIM](https://arxiv.org/abs/2010.02502.pdf), etc.
 
 ---
 
 
 # Contents
-
-- [**Rectified Flows**](#rectified-flows)
-- [Contents](#contents)
-- [Installtion](#installtion)
-- [Datasets](#datasets)
+- [Installation](#installtion)
 - [Training](#training)
   - [CIFAR-10](#cifar-10)
   - [ImageNet](#imagenet)
@@ -25,7 +23,7 @@ ____________________________________________________________
 - [License](#license)
 
 
-# Installtion
+# Installation
 
 Please run the following commands in the given order to install the dependency.
 
@@ -43,8 +41,6 @@ Then install the `rectified-flow` package:
 ```
 pip install -e .
 ```
-
-# Datasets
 
 # Training
 
@@ -65,10 +61,20 @@ todo
 
 # Sampling
 
-
-
 ```shell
 todo
+```
+
+# Citation
+If you find this repository useful for your research, please consider citing
+
+```bibtex
+@misc{liu2024rectifiedflow,
+  author = {Qiang Liu, Runlong Liao, Bo Liu, Xixi Hu},
+  title = {RectifiedFlow},
+  year = {2024},
+  url = {https://github.com/lqiang67/rectified-flow}
+}
 ```
 
 # License
@@ -76,5 +82,4 @@ todo
 | Component | License                                                      |
 | --------- | ------------------------------------------------------------ |
 | Codebase  | [MIT License](LICENSE)                                       |
-| Datasets  | [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/legalcode) |
 
