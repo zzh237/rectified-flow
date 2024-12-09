@@ -13,9 +13,9 @@ class SDESampler(Sampler):
         X_t = alpha_t * X_1_pred + beta_t * X_0_pred.
 
     - If `noise_method=='stable'`, the noise on X_0_pred is refreshed as follows:
-            
+
             X_t_noised = X_t - beta_t_noised * (X_0_pred - pi_0.mean()) + sqrt(beta_t**2 - (beta_t - beta_t_noised)**2) * (refresh_noise - pi0.mean()),
-        
+
     where beta_t_noised is computed as:
 
             beta_t_noised = step_size * noise_scale(t) * beta_t(t)**noise_decay_rate(t),
@@ -23,7 +23,7 @@ class SDESampler(Sampler):
     and is capped by beta_t:
 
             beta_t_noised = min(beta_t_noised, beta_t).
-        
+
     - If `noise_method=='euler'`, the noise term is approximated using:
 
         sqrt(beta_t**2 - (beta_t - beta_t_noised)**2) ~= sqrt(2 * beta_t * beta_t_noised).
@@ -32,7 +32,7 @@ class SDESampler(Sampler):
     Notes:
         When using both `noise_method='euler'` and `ode_method='euler'`, the method is equivalent to the Euler method for solving the SDE:
 
-            dX_t = vt(X_t) dt - e_t * (X_0_pred(X_t) - pi_0.mean()) dt 
+            dX_t = vt(X_t) dt - e_t * (X_0_pred(X_t) - pi_0.mean()) dt
                 + sqrt(2 * beta_t * e_t) * sqrt(pi_0.cov()) * dW_t,
 
         where:
@@ -50,15 +50,15 @@ class SDESampler(Sampler):
         num_samples: int | None = None,
         noise_scale: float | Callable = 1.0,
         noise_decay_rate: float | Callable = 1.0,
-        noise_method: str = 'stable',
-        ode_method: str = 'curved',
+        noise_method: str = "stable",
+        ode_method: str = "curved",
     ):
         super().__init__(
-            rectified_flow, 
-            num_steps, 
-            time_grid, 
-            record_traj_period, 
-            callbacks, 
+            rectified_flow,
+            num_steps,
+            time_grid,
+            record_traj_period,
+            callbacks,
             num_samples,
         )
         self.noise_scale = self._process_coeffs(noise_scale)
@@ -98,7 +98,9 @@ class SDESampler(Sampler):
         # Part 1: Add noise
 
         # 1) Calculate beta_t_noised, the fraction of x_0 that will be noised
-        beta_t_noised = step_size * self.noise_scale(t) * beta_t**self.noise_decay_rate(t)
+        beta_t_noised = (
+            step_size * self.noise_scale(t) * beta_t ** self.noise_decay_rate(t)
+        )
         # Clip beta_t_noised to beta_t, it's not meaningful to have beta_t_noised > beta_t
         if beta_t_noised > beta_t:
             beta_t_noised = beta_t
@@ -107,13 +109,17 @@ class SDESampler(Sampler):
         pi_0_mean = self.rectified_flow.pi_0.mean
 
         # 2) Remove beta_t_noised * x_0 and then add refreshed noise
-        if self.noise_method.lower() == 'stable':
-            noise_std = (beta_t ** 2 - (beta_t - beta_t_noised) ** 2) ** 0.5
-            langevin_term = -beta_t_noised * (x_0 - pi_0_mean) + noise_std * (refresh_noise - pi_0_mean)
+        if self.noise_method.lower() == "stable":
+            noise_std = (beta_t**2 - (beta_t - beta_t_noised) ** 2) ** 0.5
+            langevin_term = -beta_t_noised * (x_0 - pi_0_mean) + noise_std * (
+                refresh_noise - pi_0_mean
+            )
         # this is the taylor approximation of the stable method when beta_t_noised is small, and corresponds to Euler method for the langevin dynamics
-        elif self.noise_method.lower() == 'euler':
+        elif self.noise_method.lower() == "euler":
             noise_std = (2 * beta_t * beta_t_noised) ** 0.5
-            langevin_term = -beta_t_noised * (x_0 - pi_0_mean) + noise_std * (refresh_noise - pi_0_mean)
+            langevin_term = -beta_t_noised * (x_0 - pi_0_mean) + noise_std * (
+                refresh_noise - pi_0_mean
+            )
 
         else:
             raise ValueError(f"Unknown noise_method: {self.noise_method}")
@@ -123,17 +129,21 @@ class SDESampler(Sampler):
         x_t_noised = x_t + langevin_term
 
         # Advance time using the specified ODE method
-        if self.ode_method.lower() == 'euler':
+        if self.ode_method.lower() == "euler":
             # standard Euler method
             x_t_next = x_t_noised + step_size * v_t
 
-        elif self.ode_method.lower() == 'curved':
+        elif self.ode_method.lower() == "curved":
             # Curved Euler method, following the underlying interpolation curve
             # a. Get x_0_noised from x_t_noised and x_1
-            x_0_noised = self.rectified_flow.interp.solve(t=t, x_t=x_t_noised, x_1=x_1).x_0
+            x_0_noised = self.rectified_flow.interp.solve(
+                t=t, x_t=x_t_noised, x_1=x_1
+            ).x_0
 
             # b. Interpolate to get x_t_next given x_0_noised and x_1
-            x_t_next = self.rectified_flow.interp.solve(t=t_next, x_0=x_0_noised, x_1=x_1).x_t
+            x_t_next = self.rectified_flow.interp.solve(
+                t=t_next, x_0=x_0_noised, x_1=x_1
+            ).x_t
 
         else:
             raise ValueError(f"Unknown ode_method: {self.ode_method}")

@@ -9,11 +9,18 @@ from pathlib import Path
 from functools import partial
 from typing import Callable, Any
 
+
 class CouplingDataset(Dataset):
     def __init__(
-        self, 
+        self,
         D1: torch.utils.data.Dataset | torch.Tensor | dist.Distribution | Callable,
-        D0: torch.utils.data.Dataset | torch.Tensor | dist.Distribution | Callable | None = None,
+        D0: (
+            torch.utils.data.Dataset
+            | torch.Tensor
+            | dist.Distribution
+            | Callable
+            | None
+        ) = None,
         reflow: bool = False,
     ):
         """
@@ -34,10 +41,10 @@ class CouplingDataset(Dataset):
         self.reflow = reflow
 
         self.D1_mode = self._get_D_mode(self.D1)
-        
+
         if self.D0 is None and not self.reflow:
             self.D0 = self._set_default_noise()
-            self.D0_mode = 'distribution'
+            self.D0_mode = "distribution"
         else:
             self.D0_mode = self._get_D_mode(self.D0)
 
@@ -47,15 +54,15 @@ class CouplingDataset(Dataset):
 
     def _get_D_mode(self, D):
         if D is None:
-            return 'none'
+            return "none"
         elif isinstance(D, torch.Tensor):
-            return 'tensor'
+            return "tensor"
         elif isinstance(D, torch.utils.data.Dataset):
-            return 'dataset'
+            return "dataset"
         elif isinstance(D, torch.distributions.Distribution):
-            return 'distribution'
+            return "distribution"
         elif callable(D):
-            return 'callable'
+            return "callable"
         else:
             raise NotImplementedError(f"Unsupported type: {type(D)}")
 
@@ -75,13 +82,17 @@ class CouplingDataset(Dataset):
             # Assume there is a key 'data' or take the first item
             return next(iter(sample.values())).shape
         else:
-            raise NotImplementedError(f"Cannot determine sample shape for type: {type(sample)}")
+            raise NotImplementedError(
+                f"Cannot determine sample shape for type: {type(sample)}"
+            )
 
     def _determine_length(self):
         if self.reflow:
             len_D1 = self._get_length(self.D1)
             len_D0 = self._get_length(self.D0)
-            assert len_D1 == len_D0, "D0 and D1 must have the same length when reflow=True"
+            assert (
+                len_D1 == len_D0
+            ), "D0 and D1 must have the same length when reflow=True"
             return len_D1
         else:
             return self._get_length(self.D1)
@@ -100,24 +111,24 @@ class CouplingDataset(Dataset):
         if self.reflow:
             X0 = self._get_sample(self.D0, index, self.D0_mode)
         else:
-            if self.D0_mode == 'distribution':
+            if self.D0_mode == "distribution":
                 X0 = None  # Will be handled in collate_fn
             else:
                 X0 = self._get_sample(self.D0, index, self.D0_mode)
         return X0, X1
 
     def _get_sample(self, D, index, mode):
-        if mode == 'tensor':
+        if mode == "tensor":
             return D[index]
-        elif mode == 'dataset':
+        elif mode == "dataset":
             sample = D[index]
             return sample  # Return full sample (could be tuple or dict)
-        elif mode == 'distribution':
+        elif mode == "distribution":
             # Return None, will be handled in collate_fn
             return None
-        elif mode == 'callable':
+        elif mode == "callable":
             return D()
-        elif mode == 'none':
+        elif mode == "none":
             return None
         else:
             raise NotImplementedError(f"Unsupported mode: {mode}")
@@ -125,16 +136,25 @@ class CouplingDataset(Dataset):
     def _validate_inputs(self):
         if self.reflow:
             # D0 and D1 must be datasets or tensors of same length
-            assert self.D0_mode in ['tensor', 'dataset'], "When reflow=True, D0 must be a tensor or dataset"
-            assert self.D1_mode in ['tensor', 'dataset'], "When reflow=True, D1 must be a tensor or dataset"
+            assert self.D0_mode in [
+                "tensor",
+                "dataset",
+            ], "When reflow=True, D0 must be a tensor or dataset"
+            assert self.D1_mode in [
+                "tensor",
+                "dataset",
+            ], "When reflow=True, D1 must be a tensor or dataset"
             len_D0 = self._get_length(self.D0)
             len_D1 = self._get_length(self.D1)
-            assert len_D0 == len_D1, "D0 and D1 must have the same length when reflow=True"
+            assert (
+                len_D0 == len_D1
+            ), "D0 and D1 must have the same length when reflow=True"
         else:
             # D1 must be provided
             assert self.D1 is not None, "D1 must be provided"
 
     default_length = 10000
+
 
 # Custom collate function
 def coupling_collate_fn(batch, D0_distribution=None):
@@ -151,6 +171,7 @@ def coupling_collate_fn(batch, D0_distribution=None):
     X1_batch = collate_batch_elements(X1_list)
 
     return X0_batch, X1_batch
+
 
 def collate_batch_elements(batch_elements):
     if isinstance(batch_elements[0], torch.Tensor):

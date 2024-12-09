@@ -15,11 +15,11 @@ class EulerSampler(Sampler):
         num_samples: int | None = None,
     ):
         super().__init__(
-            rectified_flow, 
-            num_steps, 
-            time_grid, 
-            record_traj_period, 
-            callbacks, 
+            rectified_flow,
+            num_steps,
+            time_grid,
+            record_traj_period,
+            callbacks,
             num_samples,
         )
 

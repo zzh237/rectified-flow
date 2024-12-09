@@ -6,9 +6,10 @@ import numpy as np
 
 from rectified_flow.flow_components.interpolation_solver import AffineInterp
 
+
 class AnalyticGaussianVelocity(nn.Module):
     def __init__(
-        self, 
+        self,
         dataset: torch.Tensor,
         interp: AffineInterp,
     ):
@@ -30,22 +31,28 @@ class AnalyticGaussianVelocity(nn.Module):
         x_t shape: (Batch, D)
         a_t, dot_a_t, b_t, dot_b_t shape: (Batch,)
         """
-        assert x_t.shape[1:] == self.data_shape, f"x_t shape: {x_t.shape}, data_shape: {self.data_shape}"
+        assert (
+            x_t.shape[1:] == self.data_shape
+        ), f"x_t shape: {x_t.shape}, data_shape: {self.data_shape}"
 
-        x_t = x_t.reshape(x_t.shape[0], -1) # (Batch, D)
+        x_t = x_t.reshape(x_t.shape[0], -1)  # (Batch, D)
 
         term_1 = x_t.norm(dim=1).pow(2)
         term_2 = torch.einsum("bd, nd -> bn", [x_t, self.dataset])
         term_3 = self.dataset_norm
-        
-        logit = term_1[:, None] - 2. * a_t[:, None] * term_2 + a_t.pow(2)[:, None] * term_3[None, :]
-        logit = ((-1.) / (2. * b_t.pow(2)))[:, None] * logit
-        
-        prob = torch.softmax(logit, dim=1)         # (Batch, N_data)
-        data_coeff = dot_a_t - a_t * dot_b_t / b_t # (Batch,)
+
+        logit = (
+            term_1[:, None]
+            - 2.0 * a_t[:, None] * term_2
+            + a_t.pow(2)[:, None] * term_3[None, :]
+        )
+        logit = ((-1.0) / (2.0 * b_t.pow(2)))[:, None] * logit
+
+        prob = torch.softmax(logit, dim=1)  # (Batch, N_data)
+        data_coeff = dot_a_t - a_t * dot_b_t / b_t  # (Batch,)
         prob = prob * data_coeff[:, None]
         weighted_dataset = torch.einsum("bn, nd -> bd", [prob, self.dataset])
-        
+
         v = (dot_b_t / b_t)[:, None] * x_t + weighted_dataset
 
         # print(f"term_1: {term_.shape}")      # (Batch,)

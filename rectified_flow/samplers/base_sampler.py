@@ -21,9 +21,9 @@ class Sampler:
     time grid.
 
     The `Sampler` class is designed to be subclassed, with the `step` method implemented to define the integration scheme
-    used to update `x_t`. 
+    used to update `x_t`.
 
-    To create a custom sampler, subclass `Sampler` and implement the `step` method. The `step` method should update `self.x_t` 
+    To create a custom sampler, subclass `Sampler` and implement the `step` method. The `step` method should update `self.x_t`
     based on the current state, time, and any model-specific arguments.
 
     **Example:**
@@ -48,7 +48,7 @@ class Sampler:
     In this example, `EulerSampler` implements a simple Euler integration scheme for the sampling process.
     """
 
-    def __init__( # NOTE: consider using dataclass config
+    def __init__(  # NOTE: consider using dataclass config
         self,
         rectified_flow: RectifiedFlow,
         num_steps: int | None = None,
@@ -60,24 +60,26 @@ class Sampler:
         r"""Initialize the Sampler instance.
 
         Args:
-            rectified_flow (`RectifiedFlow`): 
+            rectified_flow (`RectifiedFlow`):
                 The RectifiedFlow instance to sample from.
-            num_steps (`int`, *optional*): 
+            num_steps (`int`, *optional*):
                 Number of time steps for sampling. If `time_grid` is not provided, `num_steps` must be specified to generate the time grid.
-            time_grid (`list[float]` or `torch.Tensor`, *optional*): 
+            time_grid (`list[float]` or `torch.Tensor`, *optional*):
                 Time grid for sampling. A list or tensor specifying the time points between 0 and 1 (inclusive). If not provided, it will be generated uniformly based on `num_steps`.
-            record_traj_period (`int`, *optional*): 
+            record_traj_period (`int`, *optional*):
                 Period at which to record the trajectory during sampling. Defaults to `1`, recording every step.
-            callbacks (`list[Callable]`, *optional*): 
+            callbacks (`list[Callable]`, *optional*):
                 List of callback functions to be called at each recording step. Each function should take the sampler instance as an argument.
-            num_samples (`int`, *optional*): 
+            num_samples (`int`, *optional*):
                 Number of samples to generate. If not provided here, it must be specified when calling `sample_loop`.
         """
         self.rectified_flow = rectified_flow
 
         # Prepare time grid
         if num_steps is not None or time_grid is not None:
-            self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
+            self.num_steps, self.time_grid = self._prepare_time_grid(
+                num_steps, time_grid
+            )
         else:
             self.num_steps = None
             self.time_grid = None
@@ -95,9 +97,9 @@ class Sampler:
         r"""Prepare the time grid for sampling.
 
         Args:
-            num_steps (`int`): 
+            num_steps (`int`):
                 Number of steps to divide the interval `[0, 1]` into. If `time_grid` is not provided, a uniform grid is created with `num_steps + 1` points.
-            time_grid (`list[float]` or `torch.Tensor`): 
+            time_grid (`list[float]` or `torch.Tensor`):
                 A list or tensor of time points between `0` and `1` (inclusive). If provided, it must have `num_steps + 1` elements if `num_steps` is also specified.
         """
         if num_steps is None and time_grid is None:
@@ -116,7 +118,9 @@ class Sampler:
             if num_steps is None:
                 num_steps = len(time_grid) - 1
             else:
-                assert len(time_grid) == num_steps + 1, "Time grid must have num_steps + 1 elements"
+                assert (
+                    len(time_grid) == num_steps + 1
+                ), "Time grid must have num_steps + 1 elements"
 
         return num_steps, time_grid
 
@@ -141,10 +145,7 @@ class Sampler:
         r"""Determine whether the sampling loop should stop.
         The sampling stops when there are no more time points in the time grid or when the current time `t` reaches the final time point (typically `1.0`).
         """
-        return (
-            self.t_next is None
-            or self.t >= 1.0 - 1e-6
-        )
+        return self.t_next is None or self.t >= 1.0 - 1e-6
 
     def record(self):
         r"""Record the current state of the sampling process.
@@ -173,21 +174,21 @@ class Sampler:
         This method performs the sampling by iteratively calling the `step` method, recording trajectories, and updating the state.
 
         Args:
-            num_samples (`int`, *optional*): 
+            num_samples (`int`, *optional*):
                 Number of samples to generate. If not provided, it must be specified in the constructor or inferred from `x_0`.
-            x_0 (`torch.Tensor`, *optional*): 
+            x_0 (`torch.Tensor`, *optional*):
                 Initial samples from the source distribution `pi_0`. If not provided, samples are drawn from `rectified_flow.sample_source_distribution`.
-            seed (`int`, *optional*): 
+            seed (`int`, *optional*):
                 Random seed for reproducibility.
-            num_steps (`int`, *optional*): 
+            num_steps (`int`, *optional*):
                 Number of time steps for sampling. If provided, overrides the `num_steps` provided during initialization.
-            time_grid (`list[float]` or `torch.Tensor`, *optional*): 
+            time_grid (`list[float]` or `torch.Tensor`, *optional*):
                 Time grid for sampling. If provided, overrides, overrides the `time_grid` provided during initialization.
-            **model_kwargs: 
+            **model_kwargs:
                 Additional keyword arguments to pass to the velocity field model.
 
         Returns:
-            `Sampler`: 
+            `Sampler`:
                 The sampler instance with the sampling results.
         """
         if seed is not None:
@@ -213,7 +214,9 @@ class Sampler:
 
         # Prepare time grid, can be overridden when calling the method
         if num_steps is not None or time_grid is not None:
-            self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
+            self.num_steps, self.time_grid = self._prepare_time_grid(
+                num_steps, time_grid
+            )
 
         self.step_count = 0
         self.time_iter = iter(self.time_grid)

@@ -46,6 +46,7 @@ class DiTConfig:
 #               Embedding Layers for Timesteps and Class Labels                 #
 #################################################################################
 
+
 class TimestepEmbedder(nn.Module):
     """
     Embeds scalar timesteps into vector representations.
@@ -64,7 +65,7 @@ class TimestepEmbedder(nn.Module):
     def timestep_embedding(t, dim, max_period=10000, time_factor: float = 1000.0):
         """
         Create sinusoidal timestep embeddings.
-        :param t: a 1-D Tensor of N indices, one per batch element. 
+        :param t: a 1-D Tensor of N indices, one per batch element.
                   t range [0, 1] for recitified flow, scaled by time_factor for numerical stability
         :param dim: the dimension of the output.
         :param max_period: controls the minimum frequency of the embeddings.
@@ -74,12 +75,16 @@ class TimestepEmbedder(nn.Module):
         t = t * time_factor
         half = dim // 2
         freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
+            -math.log(max_period)
+            * torch.arange(start=0, end=half, dtype=torch.float32)
+            / half
         ).to(device=t.device)
         args = t[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+            embedding = torch.cat(
+                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
+            )
         return embedding
 
     def forward(self, t):
@@ -96,7 +101,9 @@ class LabelEmbedder(nn.Module):
     def __init__(self, num_classes, hidden_size, dropout_prob):
         super().__init__()
         use_cfg_embedding = dropout_prob > 0
-        self.embedding_table = nn.Embedding(num_classes + use_cfg_embedding, hidden_size)
+        self.embedding_table = nn.Embedding(
+            num_classes + use_cfg_embedding, hidden_size
+        )
         self.num_classes = num_classes
         self.dropout_prob = dropout_prob
 
@@ -105,7 +112,9 @@ class LabelEmbedder(nn.Module):
         Drops labels to enable classifier-free guidance.
         """
         if force_drop_ids is None:
-            drop_ids = torch.rand(labels.shape[0], device=labels.device) < self.dropout_prob
+            drop_ids = (
+                torch.rand(labels.shape[0], device=labels.device) < self.dropout_prob
+            )
         else:
             drop_ids = force_drop_ids == 1
         labels = torch.where(drop_ids, self.num_classes, labels)
@@ -123,6 +132,7 @@ class LabelEmbedder(nn.Module):
 #                                 Core DiT Model                                #
 #################################################################################
 
+
 class DiTBlock(nn.Module):
     """
     A DiT block with adaptive layer norm zero (adaLN-Zero) conditioning.
@@ -135,21 +145,31 @@ class DiTBlock(nn.Module):
         self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
         approx_gelu = lambda: nn.GELU(approximate="tanh")
-        self.mlp = Mlp(in_features=hidden_size, hidden_features=mlp_hidden_dim, act_layer=approx_gelu, drop=0)
+        self.mlp = Mlp(
+            in_features=hidden_size,
+            hidden_features=mlp_hidden_dim,
+            act_layer=approx_gelu,
+            drop=0,
+        )
         self.adaLN_modulation = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(hidden_size, 6 * hidden_size, bias=True)
+            nn.SiLU(), nn.Linear(hidden_size, 6 * hidden_size, bias=True)
         )
         self.skip_linear = nn.Linear(2 * hidden_size, hidden_size) if skip else None
 
     def forward(self, x, c, x_skip=None):
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+            self.adaLN_modulation(c).chunk(6, dim=1)
+        )
 
         if self.skip_linear is not None:
             x = self.skip_linear(torch.cat([x, x_skip], dim=-1))
 
-        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa))
-        x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+        x = x + gate_msa.unsqueeze(1) * self.attn(
+            modulate(self.norm1(x), shift_msa, scale_msa)
+        )
+        x = x + gate_mlp.unsqueeze(1) * self.mlp(
+            modulate(self.norm2(x), shift_mlp, scale_mlp)
+        )
         return x
 
 
@@ -161,10 +181,11 @@ class FinalLayer(nn.Module):
     def __init__(self, hidden_size, patch_size, out_channels):
         super().__init__()
         self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        self.linear = nn.Linear(hidden_size, patch_size * patch_size * out_channels, bias=True)
+        self.linear = nn.Linear(
+            hidden_size, patch_size * patch_size * out_channels, bias=True
+        )
         self.adaLN_modulation = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(hidden_size, 2 * hidden_size, bias=True)
+            nn.SiLU(), nn.Linear(hidden_size, 2 * hidden_size, bias=True)
         )
 
     def forward(self, x, c):
@@ -178,11 +199,12 @@ class DiT(nn.Module):
     """
     Diffusion model with a Transformer backbone.
     """
+
     config_class = DiTConfig
 
     def __init__(
-            self,
-            config: DiTConfig,
+        self,
+        config: DiTConfig,
     ):
         super().__init__()
         self.config = config
@@ -191,30 +213,63 @@ class DiT(nn.Module):
         self.patch_size = config.patch_size
         self.num_heads = config.num_heads
 
-        self.x_embedder = PatchEmbed(config.input_size, config.patch_size, config.in_channels, config.hidden_size,
-                                     bias=True)
+        self.x_embedder = PatchEmbed(
+            config.input_size,
+            config.patch_size,
+            config.in_channels,
+            config.hidden_size,
+            bias=True,
+        )
         self.t_embedder = TimestepEmbedder(config.hidden_size)
         if config.num_classes > 0:  # conditional generation
-            self.y_embedder = LabelEmbedder(config.num_classes, config.hidden_size, config.class_dropout_prob)
+            self.y_embedder = LabelEmbedder(
+                config.num_classes, config.hidden_size, config.class_dropout_prob
+            )
         num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, config.hidden_size), requires_grad=False)
+        self.pos_embed = nn.Parameter(
+            torch.zeros(1, num_patches, config.hidden_size), requires_grad=False
+        )
 
-        self.in_blocks = nn.ModuleList([
-            DiTBlock(hidden_size=config.hidden_size, num_heads=config.num_heads, mlp_ratio=config.mlp_ratio, skip=False)
-            for _ in range(config.depth // 2)])
+        self.in_blocks = nn.ModuleList(
+            [
+                DiTBlock(
+                    hidden_size=config.hidden_size,
+                    num_heads=config.num_heads,
+                    mlp_ratio=config.mlp_ratio,
+                    skip=False,
+                )
+                for _ in range(config.depth // 2)
+            ]
+        )
 
         self.mid_block = DiTBlock(
-            hidden_size=config.hidden_size, num_heads=config.num_heads, mlp_ratio=config.mlp_ratio, skip=False)
+            hidden_size=config.hidden_size,
+            num_heads=config.num_heads,
+            mlp_ratio=config.mlp_ratio,
+            skip=False,
+        )
 
-        self.out_blocks = nn.ModuleList([
-            DiTBlock(hidden_size=config.hidden_size, num_heads=config.num_heads, mlp_ratio=config.mlp_ratio,
-                     skip=config.use_long_skip)
-            for _ in range(config.depth // 2)])
+        self.out_blocks = nn.ModuleList(
+            [
+                DiTBlock(
+                    hidden_size=config.hidden_size,
+                    num_heads=config.num_heads,
+                    mlp_ratio=config.mlp_ratio,
+                    skip=config.use_long_skip,
+                )
+                for _ in range(config.depth // 2)
+            ]
+        )
 
-        self.final_layer = FinalLayer(config.hidden_size, config.patch_size, self.out_channels)
-        self.final_conv = nn.Conv2d(config.out_channels, config.out_channels, 3,
-                                    padding=1) if config.final_conv else nn.Identity()
+        self.final_layer = FinalLayer(
+            config.hidden_size, config.patch_size, self.out_channels
+        )
+        self.final_conv = (
+            nn.Conv2d(config.out_channels, config.out_channels, 3, padding=1)
+            if config.final_conv
+            else nn.Identity()
+        )
 
         self.initialize_weights()
 
@@ -229,7 +284,9 @@ class DiT(nn.Module):
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
-        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
+        pos_embed = get_2d_sincos_pos_embed(
+            self.pos_embed.shape[-1], int(self.x_embedder.num_patches**0.5)
+        )
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
         # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
@@ -238,7 +295,7 @@ class DiT(nn.Module):
         nn.init.constant_(self.x_embedder.proj.bias, 0)
 
         # Initialize label embedding table:
-        if hasattr(self, 'y_embedder'):
+        if hasattr(self, "y_embedder"):
             nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
 
         # Initialize timestep embedding MLP:
@@ -266,11 +323,11 @@ class DiT(nn.Module):
         os.makedirs(save_directory, exist_ok=True)
         config_path = os.path.join(save_directory, f"{filename}_config.json")
         config_dict = asdict(self.config)
-        with open(config_path, 'w', encoding='utf-8') as f:
+        with open(config_path, "w", encoding="utf-8") as f:
             json.dump(config_dict, f, ensure_ascii=False, indent=4)
         print(f"Configuration saved to {config_path}")
 
-        model_to_save = self.module if hasattr(self, 'module') else self
+        model_to_save = self.module if hasattr(self, "module") else self
         state_dict = model_to_save.state_dict()
         state_dict_cpu = {k: v.cpu() for k, v in state_dict.items()}
         output_model_file = os.path.join(save_directory, f"{filename}_model.pt")
@@ -278,17 +335,21 @@ class DiT(nn.Module):
         print(f"Model weights saved to {output_model_file}")
 
     @classmethod
-    def from_pretrained(cls, save_directory: str, filename: str = "dit", use_ema: bool = False):
+    def from_pretrained(
+        cls, save_directory: str, filename: str = "dit", use_ema: bool = False
+    ):
         config_path = os.path.join(save_directory, f"{filename}_config.json")
-        with open(config_path, 'r', encoding='utf-8') as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             config_dict = json.load(f)
 
         config = cls.config_class(**config_dict)
         model = cls(config)
 
-        if use_ema: model_path = os.path.join(save_directory, f"{filename}_ema.pt")
-        else: model_path = os.path.join(save_directory, f"{filename}_model.pt")
-        state_dict = torch.load(model_path, map_location='cpu')
+        if use_ema:
+            model_path = os.path.join(save_directory, f"{filename}_ema.pt")
+        else:
+            model_path = os.path.join(save_directory, f"{filename}_model.pt")
+        state_dict = torch.load(model_path, map_location="cpu")
         model.load_state_dict(state_dict)
         print(f"Model loaded from {model_path}")
 
@@ -305,24 +366,22 @@ class DiT(nn.Module):
         assert h * w == x.shape[1]
 
         x = x.reshape(shape=(x.shape[0], h, w, p, p, c))
-        x = torch.einsum('nhwpqc->nchpwq', x)
+        x = torch.einsum("nhwpqc->nchpwq", x)
         imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
-    def forward(
-            self,
-            x: torch.Tensor,
-            t: torch.Tensor,
-            y=None):
+    def forward(self, x: torch.Tensor, t: torch.Tensor, y=None):
         """
         Forward pass of DiT.
         x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
         t: (N,) tensor of diffusion timesteps
         y: (N,) tensor of class labels
         """
-        x = self.x_embedder(x) + self.pos_embed  # (N, T, D), where T = H * W / patch_size ** 2
+        x = (
+            self.x_embedder(x) + self.pos_embed
+        )  # (N, T, D), where T = H * W / patch_size ** 2
         t = self.t_embedder(t)  # (N, D)
-        if hasattr(self, 'y_embedder'):
+        if hasattr(self, "y_embedder"):
             y = self.y_embedder(y, self.training)  # (N, D)
             c = t + y  # (N, D)
         else:
@@ -349,6 +408,7 @@ class DiT(nn.Module):
 #################################################################################
 # https://github.com/facebookresearch/mae/blob/main/util/pos_embed.py
 
+
 def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0):
     """
     grid_size: int of the grid height and width
@@ -363,7 +423,9 @@ def get_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=
     grid = grid.reshape([2, 1, grid_size, grid_size])
     pos_embed = get_2d_sincos_pos_embed_from_grid(embed_dim, grid)
     if cls_token and extra_tokens > 0:
-        pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
+        pos_embed = np.concatenate(
+            [np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0
+        )
     return pos_embed
 
 
@@ -386,11 +448,11 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     """
     assert embed_dim % 2 == 0
     omega = np.arange(embed_dim // 2, dtype=np.float64)
-    omega /= embed_dim / 2.
-    omega = 1. / 10000 ** omega  # (D/2,)
+    omega /= embed_dim / 2.0
+    omega = 1.0 / 10000**omega  # (D/2,)
 
     pos = pos.reshape(-1)  # (M,)
-    out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
+    out = np.einsum("m,d->md", pos, omega)  # (M, D/2), outer product
 
     emb_sin = np.sin(out)  # (M, D/2)
     emb_cos = np.cos(out)  # (M, D/2)
@@ -402,6 +464,7 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
 #################################################################################
 #                                   DiT Configs                                  #
 #################################################################################
+
 
 def DiT_XL_2(**kwargs):
     return DiT(depth=28, hidden_size=1152, patch_size=2, num_heads=16, **kwargs)
@@ -452,8 +515,16 @@ def DiT_S_8(**kwargs):
 
 
 DiT_models = {
-    'DiT-XL/2': DiT_XL_2, 'DiT-XL/4': DiT_XL_4, 'DiT-XL/8': DiT_XL_8,
-    'DiT-L/2': DiT_L_2, 'DiT-L/4': DiT_L_4, 'DiT-L/8': DiT_L_8,
-    'DiT-B/2': DiT_B_2, 'DiT-B/4': DiT_B_4, 'DiT-B/8': DiT_B_8,
-    'DiT-S/2': DiT_S_2, 'DiT-S/4': DiT_S_4, 'DiT-S/8': DiT_S_8,
+    "DiT-XL/2": DiT_XL_2,
+    "DiT-XL/4": DiT_XL_4,
+    "DiT-XL/8": DiT_XL_8,
+    "DiT-L/2": DiT_L_2,
+    "DiT-L/4": DiT_L_4,
+    "DiT-L/8": DiT_L_8,
+    "DiT-B/2": DiT_B_2,
+    "DiT-B/4": DiT_B_4,
+    "DiT-B/8": DiT_B_8,
+    "DiT-S/2": DiT_S_2,
+    "DiT-S/4": DiT_S_4,
+    "DiT-S/8": DiT_S_8,
 }

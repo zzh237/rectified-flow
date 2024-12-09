@@ -13,21 +13,23 @@ class NoiseRefreshSampler(Sampler):
         record_traj_period: int = 1,
         callbacks: list[Callable] | None = None,
         num_samples: int | None = None,
-        noise_replacement_rate: Callable = lambda t: 0.5, 
-        euler_method: str = 'curved',
+        noise_replacement_rate: Callable = lambda t: 0.5,
+        euler_method: str = "curved",
     ):
         super().__init__(
-            rectified_flow, 
-            num_steps, 
-            time_grid, 
-            record_traj_period, 
-            callbacks, 
+            rectified_flow,
+            num_steps,
+            time_grid,
+            record_traj_period,
+            callbacks,
             num_samples,
         )
         self.noise_replacement_rate = noise_replacement_rate
-        self.euler_method  = euler_method
-        assert (self.rectified_flow.independent_coupling and self.rectified_flow.is_pi_0_zero_mean_gaussian), \
-            'pi0 must be a zero mean gaussian and must use indepdent coupling'
+        self.euler_method = euler_method
+        assert (
+            self.rectified_flow.independent_coupling
+            and self.rectified_flow.is_pi_0_zero_mean_gaussian
+        ), "pi0 must be a zero mean gaussian and must use indepdent coupling"
 
     def step(self, **model_kwargs):
         """Perform a single step of the sampling process."""
@@ -48,20 +50,23 @@ class NoiseRefreshSampler(Sampler):
 
         noise_replacement_factor = self.noise_replacement_rate(t)
         x_0_pred_refreshed = (
-            (1 - noise_replacement_factor**2)**0.5 * x_0_pred +
-            noise * noise_replacement_factor
-        )
+            1 - noise_replacement_factor**2
+        ) ** 0.5 * x_0_pred + noise * noise_replacement_factor
 
-        if self.euler_method.lower() == 'curved':
+        if self.euler_method.lower() == "curved":
             # Interpolate to find x_t at t_next
-            self.rectified_flow.interp.solve(t_next, x_0=x_0_pred_refreshed, x_1=x_1_pred)
+            self.rectified_flow.interp.solve(
+                t_next, x_0=x_0_pred_refreshed, x_1=x_1_pred
+            )
             self.x_t = self.rectified_flow.interp.x_t
 
-        elif self.euler_method.lower() == 'straight':
+        elif self.euler_method.lower() == "straight":
             # if we use the x + (t_next - t) * v_t as the update for the deterministic part
             self.rectified_flow.interp.solve(t, x_0=x_0_pred_refreshed, x_1=x_1_pred)
             x_t_refreshed = self.rectified_flow.interp.x_t
-            v_t_refreshed = self.rectified_flow.interp.dot_x_t # we can also use v_t here, it will be effectively using a smaller noise_refresh_rate
+            v_t_refreshed = (
+                self.rectified_flow.interp.dot_x_t
+            )  # we can also use v_t here, it will be effectively using a smaller noise_refresh_rate
             x_t_next = x_t_refreshed + (t_next - t) * v_t_refreshed
             self.x_t = x_t_next
 

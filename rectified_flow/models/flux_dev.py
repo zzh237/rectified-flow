@@ -8,7 +8,9 @@ from diffusers import FluxPipeline
 
 @torch.inference_mode()
 def decode_imgs(latents, pipeline):
-    imgs = (latents / pipeline.vae.config.scaling_factor) + pipeline.vae.config.shift_factor
+    imgs = (
+        latents / pipeline.vae.config.scaling_factor
+    ) + pipeline.vae.config.shift_factor
     imgs = pipeline.vae.decode(imgs)[0]
     imgs = pipeline.image_processor.postprocess(imgs, output_type="pil")
     return imgs
@@ -17,15 +19,21 @@ def decode_imgs(latents, pipeline):
 @torch.inference_mode()
 def encode_imgs(imgs, pipeline, dtype):
     latents = pipeline.vae.encode(imgs).latent_dist.sample()
-    latents = (latents - pipeline.vae.config.shift_factor) * pipeline.vae.config.scaling_factor
+    latents = (
+        latents - pipeline.vae.config.shift_factor
+    ) * pipeline.vae.config.scaling_factor
     latents = latents.to(dtype=dtype)
     return latents
 
 
 def _pack_latents(latents, batch_size, num_channels_latents, height, width):
-    latents = latents.view(batch_size, num_channels_latents, height // 2, 2, width // 2, 2)
+    latents = latents.view(
+        batch_size, num_channels_latents, height // 2, 2, width // 2, 2
+    )
     latents = latents.permute(0, 2, 4, 1, 3, 5)
-    latents = latents.reshape(batch_size, (height // 2) * (width // 2), num_channels_latents * 4)
+    latents = latents.reshape(
+        batch_size, (height // 2) * (width // 2), num_channels_latents * 4
+    )
 
     return latents
 
@@ -51,7 +59,9 @@ def _prepare_latent_image_ids(batch_size, height, width, device, dtype):
     latent_image_ids[..., 1] = latent_image_ids[..., 1] + torch.arange(height)[:, None]
     latent_image_ids[..., 2] = latent_image_ids[..., 2] + torch.arange(width)[None, :]
 
-    latent_image_id_height, latent_image_id_width, latent_image_id_channels = latent_image_ids.shape
+    latent_image_id_height, latent_image_id_width, latent_image_id_channels = (
+        latent_image_ids.shape
+    )
 
     latent_image_ids = latent_image_ids.reshape(
         latent_image_id_height * latent_image_id_width, latent_image_id_channels
@@ -61,14 +71,14 @@ def _prepare_latent_image_ids(batch_size, height, width, device, dtype):
 
 
 def get_timesteps_flux(
-        num_steps: int,
-        image_seq_len: int,
-        base_shift: float = 0.5,
-        max_shift: float = 1.15,
-        shift: bool = True,
+    num_steps: int,
+    image_seq_len: int,
+    base_shift: float = 0.5,
+    max_shift: float = 1.15,
+    shift: bool = True,
 ) -> list:
     def get_lin_function(
-            x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: float = 1.15
+        x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: float = 1.15
     ):
         m = (y2 - y1) / (x2 - x1)
         b = y1 - m * x1
@@ -124,10 +134,15 @@ class FluxWrapper:
         if height % 16 != 0 or width % 16 != 0:
             height = 16 * (height // 16)
             width = 16 * (width // 16)
-            warnings.warn(f"Height and width must be divisible by 16. Adjusted to {height}x{width}.")
+            warnings.warn(
+                f"Height and width must be divisible by 16. Adjusted to {height}x{width}."
+            )
         self.height, self.width = height, width
         self.vae_latent_shape = (16, height // 8, width // 8)  # C', H', W'
-        self.dit_latent_shape = (height // 16 * width // 16, 16 * 4)  # T, C, used for pi_0 generation
+        self.dit_latent_shape = (
+            height // 16 * width // 16,
+            16 * 4,
+        )  # T, C, used for pi_0 generation
         self.image_seq_len = (height // 16) * (width // 16)
 
         self.dtype = dtype
@@ -150,7 +165,7 @@ class FluxWrapper:
             num_steps (`int`):
                 The number of steps in the time grid.
             shift (`bool`, defaults to `True`):
-                Whether to apply a time shift to the grid. 
+                Whether to apply a time shift to the grid.
         """
         time_grid = get_timesteps_flux(
             num_steps=num_steps,
@@ -195,16 +210,23 @@ class FluxWrapper:
         """
         if x_t.device != self.device:
             x_t = x_t.to(device=self.device)
-            warnings.warn(f"x_t was moved to the device {self.device} of the FluxWrapper.")
+            warnings.warn(
+                f"x_t was moved to the device {self.device} of the FluxWrapper."
+            )
 
         if x_t.dtype != self.dtype:
             x_t = x_t.to(dtype=self.dtype)
-            warnings.warn(f"x_t was casted to the dtype {self.dtype} of the FluxWrapper.")
+            warnings.warn(
+                f"x_t was casted to the dtype {self.dtype} of the FluxWrapper."
+            )
 
         # Convert ODE time t to Flux time 1 - t
         t_vec = 1.0 - t
-        assert isinstance(t_vec, torch.Tensor) and t_vec.ndim == 1 and t.shape[0] == x_t.shape[0], \
-            "Time vector must be a 1D tensor with the same length as the batch size."
+        assert (
+            isinstance(t_vec, torch.Tensor)
+            and t_vec.ndim == 1
+            and t.shape[0] == x_t.shape[0]
+        ), "Time vector must be a 1D tensor with the same length as the batch size."
 
         # Prepare latent image ids
         latent_image_ids = _prepare_latent_image_ids(
@@ -212,15 +234,12 @@ class FluxWrapper:
             self.vae_latent_shape[1] // 2,
             self.vae_latent_shape[2] // 2,
             self.device,
-            self.dtype
+            self.dtype,
         )
 
         # Prepare guidance vector
         guidance_vec = torch.full(
-            (x_t.shape[0],),
-            guidance_scale,
-            device=self.device,
-            dtype=self.dtype
+            (x_t.shape[0],), guidance_scale, device=self.device, dtype=self.dtype
         )
 
         with torch.inference_mode():
@@ -233,14 +252,18 @@ class FluxWrapper:
                 )
             else:
                 if prompt is None:
-                    assert self.cached_prompt is not None, "Prompt must be provided if not cached."
+                    assert (
+                        self.cached_prompt is not None
+                    ), "Prompt must be provided if not cached."
                 elif prompt != self.cached_prompt:  # Encode prompt if it has changed
                     self.cached_prompt = prompt
-                    self.prompt_embeds, self.pooled_prompt_embeds, self.text_ids = self.pipeline.encode_prompt(
-                        prompt=prompt,
-                        prompt_2=prompt,
+                    self.prompt_embeds, self.pooled_prompt_embeds, self.text_ids = (
+                        self.pipeline.encode_prompt(
+                            prompt=prompt,
+                            prompt_2=prompt,
+                        )
                     )
-                    print(f"Prompt \"{prompt}\" encoded.")
+                    print(f'Prompt "{prompt}" encoded.')
 
         flux_velocity = self.pipeline.transformer(
             hidden_states=x_t,
@@ -277,9 +300,15 @@ class FluxWrapper:
                 The decoded images. Shape: `(batch_size, channels, height, width)`.
         """
         dit_latents = dit_latents.clone().to(device=self.device, dtype=self.dtype)
-        assert dit_latents.shape[1] == self.image_seq_len, "Number of patches must match the image sequence length."
-        assert dit_latents.shape[2] == 16 * 4, "Number of channels must match the VAE latent channels."
-        latents = _unpack_latents(dit_latents, self.height, self.width, vae_scale_factor=8)
+        assert (
+            dit_latents.shape[1] == self.image_seq_len
+        ), "Number of patches must match the image sequence length."
+        assert (
+            dit_latents.shape[2] == 16 * 4
+        ), "Number of channels must match the VAE latent channels."
+        latents = _unpack_latents(
+            dit_latents, self.height, self.width, vae_scale_factor=8
+        )
         images = decode_imgs(latents, self.pipeline)[0]
         return images
 
@@ -301,12 +330,23 @@ class FluxWrapper:
             dit_latents (`Tensor`):
                 The DiT latents (packed latents). Shape: `(batch_size, image_seq_len, latent_dim)`.
         """
-        assert images.shape[2] == self.height and images.shape[3] == self.width, \
-            "Image dimensions must match the height and width of the FluxWrapper."
+        assert (
+            images.shape[2] == self.height and images.shape[3] == self.width
+        ), "Image dimensions must match the height and width of the FluxWrapper."
         vae_latents = encode_imgs(images, self.pipeline, self.dtype)
-        dit_latents = _pack_latents(vae_latents, vae_latents.shape[0], 16, vae_latents.shape[2], vae_latents.shape[3])
-        assert dit_latents.shape[1] == self.image_seq_len, "Number of patches must match the image sequence length."
-        assert dit_latents.shape[2] == 16 * 4, "Number of channels must match the VAE latent channels."
+        dit_latents = _pack_latents(
+            vae_latents,
+            vae_latents.shape[0],
+            16,
+            vae_latents.shape[2],
+            vae_latents.shape[3],
+        )
+        assert (
+            dit_latents.shape[1] == self.image_seq_len
+        ), "Number of patches must match the image sequence length."
+        assert (
+            dit_latents.shape[2] == 16 * 4
+        ), "Number of channels must match the VAE latent channels."
         return dit_latents
 
     def dit_to_vae_latents(
@@ -343,7 +383,13 @@ class FluxWrapper:
             dit_latents (`Tensor`):
                 The DiT latents (packed latents). Shape: `(batch_size, image_seq_len, latent_dim)`.
         """
-        return _pack_latents(vae_latents, vae_latents.shape[0], 16, vae_latents.shape[2], vae_latents.shape[3])
+        return _pack_latents(
+            vae_latents,
+            vae_latents.shape[0],
+            16,
+            vae_latents.shape[2],
+            vae_latents.shape[3],
+        )
 
 
 def get_packed_latent(
@@ -368,18 +414,30 @@ def get_packed_latent(
     # num of tokens = (resolution // 8 * resolution // 8) / 4
     # shape [num_samples, (resolution // 8 * resolution // 8) / 4,  3]
     if vae_latents is not None:
-        assert vae_latents.shape[0] == batch_size, "Batch size must match the number of samples."
-        assert vae_latents.shape[1] == shape[1], "Number of channels must match the VAE latent channels."
-        assert vae_latents.shape[2] == shape[2], "Height must match the VAE latent height."
-        assert vae_latents.shape[3] == shape[3], "Width must match the VAE latent width."
+        assert (
+            vae_latents.shape[0] == batch_size
+        ), "Batch size must match the number of samples."
+        assert (
+            vae_latents.shape[1] == shape[1]
+        ), "Number of channels must match the VAE latent channels."
+        assert (
+            vae_latents.shape[2] == shape[2]
+        ), "Height must match the VAE latent height."
+        assert (
+            vae_latents.shape[3] == shape[3]
+        ), "Width must match the VAE latent width."
     else:
-        vae_latents = torch.randn(shape, generator=generator, device=device, dtype=dtype)
+        vae_latents = torch.randn(
+            shape, generator=generator, device=device, dtype=dtype
+        )
 
     # After packing, shape [num_samples, (resolution // 16 * resolution // 16), 16 * 2 * 2]
     packed_latents = _pack_latents(vae_latents, batch_size, 16, height, width)
     # print("Packed latents shape = ", packed_latents.shape)
 
-    latent_image_ids = _prepare_latent_image_ids(batch_size, height // 2, width // 2, device, dtype)
+    latent_image_ids = _prepare_latent_image_ids(
+        batch_size, height // 2, width // 2, device, dtype
+    )
     # print("Latent image ids shape = ", latent_image_ids.shape)
 
     return packed_latents, latent_image_ids

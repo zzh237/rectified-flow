@@ -14,34 +14,35 @@ class AffineInterpSolver:
         x_t = a_t * x_1 + b_t * x_0,
         dot_x_t = dot_a_t * x_1 + dot_b_t * x_0.
 
-    Given at least two known variables among `x_0, x_1, x_t, dot_x_t`, and the rest unknown, 
-    the solver computes the unknowns. The method precomputes symbolic solutions for all pairs 
+    Given at least two known variables among `x_0, x_1, x_t, dot_x_t`, and the rest unknown,
+    the solver computes the unknowns. The method precomputes symbolic solutions for all pairs
     of unknown variables and stores them as lambdified functions for efficient numerical computation.
     """
+
     def __init__(self):
         r"""Initialize the `AffineInterpSolver` class.
 
-        This method sets up the symbolic equations for affine interpolation and precomputes symbolic solvers 
+        This method sets up the symbolic equations for affine interpolation and precomputes symbolic solvers
         for all pairs of unknown variables among `x_0, x_1, x_t, dot_x_t`. The equations are:
 
             x_t = a_t * x_1 + b_t * x_0,
             dot_x_t = dot_a_t * x_1 + dot_b_t * x_0.
 
-        By solving these equations symbolically for each pair of unknown variables, the method creates lambdified 
+        By solving these equations symbolically for each pair of unknown variables, the method creates lambdified
         functions that can be used for efficient numerical computations during runtime.
         """
         # Define symbols
-        x_0, x_1, x_t, dot_x_t = sympy.symbols('x_0 x_1 x_t dot_x_t')
-        a_t, b_t, dot_a_t, dot_b_t = sympy.symbols('a_t b_t dot_a_t dot_b_t')
-        
+        x_0, x_1, x_t, dot_x_t = sympy.symbols("x_0 x_1 x_t dot_x_t")
+        a_t, b_t, dot_a_t, dot_b_t = sympy.symbols("a_t b_t dot_a_t dot_b_t")
+
         # Equations
         eq1 = sympy.Eq(x_t, a_t * x_1 + b_t * x_0)
         eq2 = sympy.Eq(dot_x_t, dot_a_t * x_1 + dot_b_t * x_0)
-        
+
         # Variables to solve for
         variables = [x_0, x_1, x_t, dot_x_t]
         self.symbolic_solvers = {}
-        
+
         # Create symbolic solvers for all pairs of unknown variables
         for i in range(len(variables)):
             for j in range(i + 1, len(variables)):
@@ -57,19 +58,19 @@ class AffineInterpSolver:
                     func = sympy.lambdify(
                         [x_0, x_1, x_t, dot_x_t, a_t, b_t, dot_a_t, dot_b_t],
                         [expr1, expr2],
-                        modules="numpy"
+                        modules="numpy",
                     )
                     # Store solver function
                     var_names = (str(unknown1), str(unknown2))
                     self.symbolic_solvers[var_names] = func
 
     def solve(
-        self, 
+        self,
         results,
     ):
         r"""Solve for unknown variables in the affine interpolation equations.
 
-        This method computes the unknown variables among `x_0, x_1, x_t, dot_x_t` given the known variables 
+        This method computes the unknown variables among `x_0, x_1, x_t, dot_x_t` given the known variables
         in the `results` object. It uses the precomputed symbolic solvers to find the solutions efficiently.
 
         Args:
@@ -86,12 +87,12 @@ class AffineInterpSolver:
             `Any`: The input `results` object with the unknown variables computed and assigned.
 
         Notes:
-            - If only one variable among `x_0, x_1, x_t, dot_x_t` is unknown, the method selects an additional 
+            - If only one variable among `x_0, x_1, x_t, dot_x_t` is unknown, the method selects an additional
               known variable to form a pair for solving.
             - The method assumes that at least two variables among `x_0, x_1, x_t, dot_x_t` are known.
             - The variables `a_t`, `b_t`, `dot_a_t`, and `dot_b_t` must be provided in `results`.
 
-        Example: 
+        Example:
             ```python
             >>> solver = AffineInterpSolver()
             >>> class Results:
@@ -108,17 +109,27 @@ class AffineInterpSolver:
             >>> print(results.x_0)  # Now x_0 is computed and assigned in `results`.
             ```
         """
-        known_vars = {k: getattr(results, k) for k in ['x_0', 'x_1', 'x_t', 'dot_x_t'] if getattr(results, k) is not None}
-        unknown_vars = {k: getattr(results, k) for k in ['x_0', 'x_1', 'x_t', 'dot_x_t'] if getattr(results, k) is None}
+        known_vars = {
+            k: getattr(results, k)
+            for k in ["x_0", "x_1", "x_t", "dot_x_t"]
+            if getattr(results, k) is not None
+        }
+        unknown_vars = {
+            k: getattr(results, k)
+            for k in ["x_0", "x_1", "x_t", "dot_x_t"]
+            if getattr(results, k) is None
+        }
         unknown_keys = tuple(unknown_vars.keys())
 
         if len(unknown_keys) > 2:
-            raise ValueError("At most two variables among (x_0, x_1, x_t, dot_x_t) can be unknown.")
+            raise ValueError(
+                "At most two variables among (x_0, x_1, x_t, dot_x_t) can be unknown."
+            )
         elif len(unknown_keys) == 0:
             return results
         elif len(unknown_keys) == 1:
             # Select one known variable to make up the pair
-            for var in ['x_0', 'x_1', 'x_t', 'dot_x_t']:
+            for var in ["x_0", "x_1", "x_t", "dot_x_t"]:
                 if var in known_vars:
                     unknown_keys.append(var)
                     break
@@ -127,7 +138,7 @@ class AffineInterpSolver:
 
         # Prepare arguments in the order [x_0, x_1, x_t, dot_x_t, a_t, b_t, dot_a_t, dot_b_t]
         args = []
-        for var in ['x_0', 'x_1', 'x_t', 'dot_x_t', 'a_t', 'b_t', 'dot_a_t', 'dot_b_t']:
+        for var in ["x_0", "x_1", "x_t", "dot_x_t", "a_t", "b_t", "dot_a_t", "dot_b_t"]:
             value = getattr(results, var, None)
             if value is None:
                 value = 0  # Placeholder for unknowns
@@ -145,12 +156,12 @@ class AffineInterpSolver:
 class AffineInterp(nn.Module):
     r"""Affine Interpolation Module for Rectified Flow Models.
 
-    This class implements affine interpolation between samples `x_0` from source distribution `pi_0` and 
-    samples `x_1` from target distribution `pi_1` over a time interval `t` in `[0, 1]`. 
-    
+    This class implements affine interpolation between samples `x_0` from source distribution `pi_0` and
+    samples `x_1` from target distribution `pi_1` over a time interval `t` in `[0, 1]`.
+
     The interpolation is defined using time-dependent coefficients `alpha(t)` and `beta(t)`:
 
-        x_t = alpha(t) * x_1 + beta(t) * x_0, 
+        x_t = alpha(t) * x_1 + beta(t) * x_0,
         dot_x_t = dot_alpha(t) * x_1 + dot_beta(t) * x_0,
 
     where `x_t` is the interpolated state at time `t`, and `dot_x_t` is its time derivative.
@@ -168,7 +179,7 @@ class AffineInterp(nn.Module):
         dot_alpha(t) = pi / 2 * cos(pi / 2 * t), dot_beta(t) = -pi / 2 * sin(pi / 2 * t).
 
     - **DDIM/DDPM Interpolation** (`"ddim"` or `"ddpm"`):
-   
+
         alpha(t) = exp(-a * (1 - t) ** 2 / 4.0 - b * (1 - t) / 2.0),
         beta(t) = sqrt(1 - alpha(t) ** 2),
         a = 19.9 and b = 0.1.
@@ -185,50 +196,62 @@ class AffineInterp(nn.Module):
         dot_a_t (`torch.Tensor` or `None`): Cached value of `dot_a(t)` after computation.
         dot_b_t (`torch.Tensor` or `None`): Cached value of `dot_b(t)` after computation.
     """
+
     def __init__(
-        self, 
+        self,
         name: str = "straight",
         alpha: Callable | None = None,
         beta: Callable | None = None,
         dot_alpha: Callable | None = None,
         dot_beta: Callable | None = None,
     ):
-        
+
         super().__init__()
 
-        if name.lower() in ['straight', 'lerp']:
+        if name.lower() in ["straight", "lerp"]:
             # Special case for "straight" interpolation
             alpha = lambda t: t
             beta = lambda t: 1 - t
             dot_alpha = lambda t: torch.ones_like(t)
             dot_beta = lambda t: -torch.ones_like(t)
-            name = 'straight'
-        elif name.lower() in ['slerp', 'spherical']:
+            name = "straight"
+        elif name.lower() in ["slerp", "spherical"]:
             # Special case of "spherical" interpolation
             alpha = lambda t: torch.sin(t * torch.pi / 2.0)
             beta = lambda t: torch.cos(t * torch.pi / 2.0)
             dot_alpha = lambda t: torch.cos(t * torch.pi / 2.0) * torch.pi / 2.0
             dot_beta = lambda t: -torch.sin(t * torch.pi / 2.0) * torch.pi / 2.0
-            name = 'spherical'
-        elif name.lower() in ['ddim', 'ddpm']:
+            name = "spherical"
+        elif name.lower() in ["ddim", "ddpm"]:
             # DDIM/DDPM scheme; see Eq 7 in https://arxiv.org/pdf/2209.03003
             # Note in VP-ODE, dot_beta_t will explode at t = 1
             a = 19.9
             b = 0.1
             alpha = lambda t: torch.exp(-a * (1 - t) ** 2 / 4.0 - b * (1 - t) / 2.0)
             beta = lambda t: torch.sqrt(1 - alpha(t) ** 2)
-            name = 'DDIM'
-        elif alpha is not None and beta is not None and dot_alpha is not None and dot_beta is not None:
+            name = "DDIM"
+        elif (
+            alpha is not None
+            and beta is not None
+            and dot_alpha is not None
+            and dot_beta is not None
+        ):
             # Custom interpolation functions
-            raise NotImplementedError("Custom interpolation functions are not yet supported.")
+            raise NotImplementedError(
+                "Custom interpolation functions are not yet supported."
+            )
 
         self.name = name
         self.alpha = lambda t: alpha(self.ensure_tensor(t))
         self.beta = lambda t: beta(self.ensure_tensor(t))
-        if dot_alpha is not None: self.dot_alpha = lambda t: dot_alpha(self.ensure_tensor(t))
-        else: self.dot_alpha = None 
-        if dot_beta is not None: self.dot_beta = lambda t: dot_beta(self.ensure_tensor(t))
-        else: self.dot_beta = None 
+        if dot_alpha is not None:
+            self.dot_alpha = lambda t: dot_alpha(self.ensure_tensor(t))
+        else:
+            self.dot_alpha = None
+        if dot_beta is not None:
+            self.dot_beta = lambda t: dot_beta(self.ensure_tensor(t))
+        else:
+            self.dot_beta = None
 
         self.solver = AffineInterpSolver()
         self.a_t = None
@@ -275,7 +298,7 @@ class AffineInterp(nn.Module):
         x = input_tensor.clone().detach().requires_grad_(True)
         with torch.enable_grad():
             value = f(x)
-            grad, = torch.autograd.grad(value.sum(), x, create_graph=not detach)
+            (grad,) = torch.autograd.grad(value.sum(), x, create_graph=not detach)
         if detach:
             value = value.detach()
             grad = grad.detach()
@@ -390,7 +413,9 @@ class AffineInterp(nn.Module):
             raise ValueError("At least two of x_0, x_1, x_t, dot_x_t must not be None")
 
         x_not_none = non_none_values[0]
-        t = match_dim_with_data(t, x_not_none.shape, device=x_not_none.device, dtype=x_not_none.dtype)
+        t = match_dim_with_data(
+            t, x_not_none.shape, device=x_not_none.device, dtype=x_not_none.dtype
+        )
         a_t, b_t, dot_a_t, dot_b_t = self.get_coeffs(t, detach)
-        
+
         return self.solver.solve(self)
