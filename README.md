@@ -95,6 +95,27 @@ During training, you can easily compute the predefined loss by passing your targ
 ```python
 loss = rectified_flow.get_loss(x_0=None, x_1=x_1, **kwargs)
 ```
+This is implemented by:
+```python
+# Step 1: Interpolation
+x_t, dot_x_t = self.get_interpolation(x_0, x_1, t)
+
+# Step 2: Velocity Calculation
+v_t = self.get_velocity(x_t, t, **kwargs)
+
+# Step 3: Time Weights
+time_weights = self.train_time_weight(t)
+
+# Step 4: Loss Computation
+return self.criterion(
+    v_t=v_t,
+    dot_x_t=dot_x_t,
+    x_t=x_t,
+    t=t,
+    time_weights=time_weights,
+)
+
+```
 
 For sampling, import the desired sampler class and pass the `RectifiedFlow` instance to it.
 ```python
@@ -141,18 +162,24 @@ model = DiT.from_pretrained(save_directory="PATH_TO_MODEL", filename="dit", use_
 # Customize Your Component
 
 ## Wrapping a New Velocity
-The `velocity_field` argument in the `RectifiedFlow` class expects a neural network or a callable function that takes `x_t` and `t` as inputs. When you want to reparameterize the model or change the direction of the generating ODE time from $1 \to 0$ to $0 \to 1$, we suggest always wrapping the model using a velocity field wrapper.
 
-```python
-model = YourPretrainedModel()
+The `velocity_field` argument in the `RectifiedFlow` class accepts a neural network or any callable function that takes $x_t$ and $t$ as inputs. If you need to reparameterize the model or reverse the direction of the generating ODE time (from $t = 1 \to 0$ to $t = 0 \to 1$), we recommend using a velocity field wrapper to simplify the process.
 
-# Change ODE time direction from 1→0 to 0→1
-velocity = lambda x_t, t: model(x_t, 1.0 - t)
+1. **Reversing the Time Direction**  
+   In scenarios like Flux, where the velocity transitions from $\pi_1$ to $\pi_0$ for image generation, reversing the ODE time direction is often required. A simple wrapper achieves this.
 
-# Reparameterization example
-velocity = lambda x_t, t: t**2 * model(x_t, t)
-```
+   ```python
+   # Reverse ODE time direction
+   velocity = lambda x_t, t: -model(x_t, 1.0 - t)
+   ```
 
+2. **Reparameterizing for Noise Prediction**  
+   Some works parameterize the model to predict noise instead of velocity. Using an `AffineInterpSolver`, you can automatically convert noise predictions into velocity predictions, bypassing the complexity of handling DDIM coefficients.
+
+   ```python
+   # Convert noise prediction to velocity prediction
+   velocity = lambda x_t, t: self.interp.solve(t=t, x_t=x_t, x_0=model(x_t, t)).dot_x_t
+   ```
 In Rectified Flow, we assume that when $t = 0$, $X_0 \sim \pi_0$ represents the **source distribution**, and when $t = 1$, $X_1 \sim \pi_1$ represents the **target distribution**, such as an image distribution.
 
 ## Interpolation
