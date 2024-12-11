@@ -230,15 +230,15 @@ class AffineInterp(nn.Module):
             alpha = lambda t: torch.exp(-a * (1 - t) ** 2 / 4.0 - b * (1 - t) / 2.0)
             beta = lambda t: torch.sqrt(1 - alpha(t) ** 2)
             name = "DDIM"
+        elif isinstance(name, str):
+            raise ValueError(f"Unknown interpolation scheme: {name}. Provide custom interpolation functions for alpha and beta.")
         elif (
-            alpha is not None
-            and beta is not None
-            and dot_alpha is not None
-            and dot_beta is not None
+            alpha is None
+            or beta is None
         ):
             # Custom interpolation functions
             raise NotImplementedError(
-                "Custom interpolation functions are not yet supported."
+                "Custom interpolation functions must be provided for alpha and beta."
             )
 
         self.name = name
