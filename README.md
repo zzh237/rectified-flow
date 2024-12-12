@@ -2,6 +2,7 @@
 
 <img src="assets/logo.svg" alt="Logo" style="width: 80%; height: auto;">
 
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) 
 [![Blog](https://img.shields.io/badge/blog-blue)](https://rectifiedflow.github.io)
 [![Book](https://img.shields.io/badge/book-blue)](https://arxiv.org/pdf/2209.03003.pdf)
 [![Email](https://img.shields.io/badge/email-blue)](mailto:rectifiedflow@googlegroups.com)
