@@ -17,17 +17,17 @@ ______________________________________________________________________
 
 **RectifiedFlow** provides a *unified* and *minimal* PyTorch codebase for diffusion and flow models. By leveraging a simplified perspective from Rectified Flow, it delivers a streamlined and user-friendly platform for training and inference. The design prioritizes simplicity, intuitive usage, and rapid prototyping, while also supporting state-of-the-art model training and inference. The library includes:
 
-- **Companion Blog and Lecture Notes**: [![Blog](https://img.shields.io/badge/blog-blue)](https://rectifiedflow.github.io) 
-  [![Lecture Notes](https://img.shields.io/badge/lecture%20notes-blue)](https://github.com/lqiang67/rectified-flow/tree/main/pdf)
 
-- **Simplified ODE Perspective**: Seamlessly train and infer rectified flow (RF) and diffusion models from a single, coherent ODE perspective. It includes learning 1-rectified flow from data (a.k.a. flow matching), and reflow for speed up, and diffusion models as stochastic samplers of RF. 
+- **Companion Resources**: Accompanied by a matrix of learning materials, including [![Blog](https://img.shields.io/badge/blog-blue)](https://rectifiedflow.github.io) and [![Lecture Notes](https://img.shields.io/badge/lecture%20notes-blue)](https://github.com/lqiang67/rectified-flow/tree/main/pdf), as well as beginner-friendly [![Notebooks](https://img.shields.io/badge/Notebooks-orange)](https://github.com/lqiang67/rectified-flow/tree/main/examples) that provide comprehensive guidance from basic concepts to advanced implementations.
+
+- **Simplified ODE Perspective**: Seamlessly train and infer rectified flow (RF) and diffusion models from a single, coherent ODE perspective. It includes learning 1-rectified flow from data (a.k.a. flow matching), and reflow for speed up, and diffusion models as stochastic samplers of RF.
+
+- **Easy Integration with SOTA Models**: Effortlessly integrate state-of-the-art models, including Flux series, into the framework for enhanced flexibility and compatibility.
+
 - **Comprehensive Tools**: 
   - **Symbolic Interpolation Solvers**: Automatically handles affine interpolation, including interpolation and derivative computations, and provides symbolic solutions for interpolation equations.
   - **Model Form Interconversion**: Seamlessly converts between different model forms, including score models, velocity predictions, and noise / image predictions.
   - **Deterministic & Stochastic Sampling**: Offers unified support for both deterministic and stochastic sampling methods, enabling the easy implementation of various algorithmic approaches (such as DDIM and DDPM) within a single cohesive framework.
-
-- **Beginner-Friendly Tutorials**: Comprehensive tutorials designed to guide users from basic concepts to advanced implementations.
-- **Easy Integration with SOTA Models**: Effortlessly integrate state-of-the-art models, including Flux series, into the framework for enhanced flexibility and compatibility.
 
 Whether you are a researcher exploring the frontiers of generative modeling, a student seeking to deepen your understanding through comprehensive tutorials, or a scientist investigating state-of-the-art text-to-image generation, **RectifiedFlow** offers the essential resources and functionalities to advance your projects with confidence and ease.
 
