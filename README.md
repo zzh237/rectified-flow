@@ -203,12 +203,10 @@ The `AffineInterp` class manages the affine interpolation between the source dis
 
 2. **Automatic Solving of Unknown Variables**: Given any two of the four variables ($X_0,X_1,X_t,\dot X_t$), the class can automatically solve for the remaining unknowns using precomputed symbolic solvers from the following equation    
 $$
-\left\{
 \begin{array}{l}
 X_t = \alpha_t X_1 + \beta_t X_0 \\
 \dot{X}_t = \dot{\alpha}_t X_1 + \dot{\beta}_t X_0
 \end{array}
-\right.
 $$
 This feature is  convenient to avoid the hand derivation of the coefficients in DDIM like algorithms, and conversion between important quantities, such as the RF velocity, score fuction, and predicte noise and targets.
    ```python
