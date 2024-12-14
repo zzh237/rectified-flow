@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="Logo" style="width: 80%; height: auto;">
+<img src="assets/logo_new2.png" alt="Logo" style="width: 75%; height: auto;">
 
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) 
 [![Blog](https://img.shields.io/badge/blog-blue)](https://rectifiedflow.github.io)
