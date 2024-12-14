@@ -69,9 +69,11 @@ pip install -e .
 ## **Rectified Flow: A One-Minute Introduction**
 
 Consider the task of learning an ODE model $\mathrm d Z_t = v_t(Z_t) \, \mathrm d t$ that transforms a noise distribution $X_0 \sim \pi_0$ into a data distribution $X_1 \sim \pi_1$. We begin by drawing random pairs $(X_0, X_1)$ (where $X_0$ and $X_1$) are independent by default, and then construct the interpolation $X_t = t X_1 + (1 - t) X_0.$ The rectified flow velocity is learned by minimizing
+
 $$
-\min_v \, \mathbb{E}_{X_0, X_1, t} \left[ \left\| \frac{\mathrm d}{\mathrm d t} X_t - v_t(X_t, t) \right\|^2 \right],
+\min_v \mathbb{E}_{X_0, X_1, t} \left[ \left\| \frac{\mathrm d}{\mathrm d t} X_t - v_t(X_t, t) \right\|^2 \right]
 $$
+
 where $t \sim \text{Uniform}([0, 1])$ and $\frac{\mathrm d}{\mathrm d t} X_t = X_1 - X_0$.
 
 After training the model $v_t$, we can solve the ODE $\mathrm d Z_t = v_t(Z_t) \, \mathrm d t$ with the initial condition $Z_0 \sim \pi_0$. This yields a set of pairs $(Z_0, Z_1)$, which can be treated as new data pairs $(X_0, X_1)$ to train a new model $v_t^{\text{reflow}}$. This "reflowed" model is known to produce straighter trajectories, allowing the ODE to be solved with fewer Euler steps and larger step sizes.
@@ -196,18 +198,20 @@ The `AffineInterp` class manages the affine interpolation between the source dis
    ```
 
 2. **Automatic Solving of Unknown Variables**: Given any two of the four variables ($X_0,X_1,X_t,\dot X_t$), the class can automatically solve for the remaining unknowns using precomputed symbolic solvers. This feature is very convenient when computing certain common quantities, such as estimating $\hat X_0$ and $\hat X_1$ given $X_t$ and $v(X_t, t)$.
-   $$
-   \begin{cases}
-   X_t = \alpha_t X_1 + \beta_t X_0 \\
-   \dot X_t = \dot \alpha_t X_1 + \dot \beta_t X_0
-   \end{cases}
-   $$
-
    ```python
    # Solve for x_0 and x_1 given x_t and dot_x_t
    interp.solve(t=t, x_t=x_t, dot_x_t=velocity)
    print(interp.x_0, interp.x_1)
    ```
+   
+$$
+\begin{cases}
+X_t = \alpha_t X_1 + \beta_t X_0 \\
+\dot X_t = \dot \alpha_t X_1 + \dot \beta_t X_0
+\end{cases}
+$$
+
+   
 
 ## Wrapping a New Velocity
 
