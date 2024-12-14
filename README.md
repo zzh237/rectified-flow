@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) 
 [![Blog](https://img.shields.io/badge/blog-blue)](https://rectifiedflow.github.io)
 [![Book](https://img.shields.io/badge/book-blue)](https://arxiv.org/pdf/2209.03003.pdf)
-[![Email](https://img.shields.io/badge/email-blue)](mailto:rectifiedflow@googlegroups.com)
+[![Email](https://img.shields.io/badge/email-blue)](mailto:rectifiedflow@gmail.com)
 
 ______________________________________________________________________
 
@@ -15,15 +15,16 @@ ______________________________________________________________________
 
 ## Overview
 
-**RectifiedFlow** is a repository that offers a *unified* and *minimal* codebase for implementing a variety of diffusion and flow models, including [Rectified Flow](https://arxiv.org/pdf/2209.03003.pdf), [DDPM](https://arxiv.org/abs/2006.11239.pdf), [DDIM](https://arxiv.org/abs/2010.02502.pdf), and more. By adopting a unified Ordinary Differential Equation (ODE) perspective, **RectifiedFlow** provides a streamlined and convenient framework for training and inference, tailored for research purposes. This PyTorch-based library includes:
+**RectifiedFlow** provides a *unified* and *minimal* PyTorch codebase for diffusion and flow models. By leveraging a simplified perspective from Rectified Flow, it delivers a streamlined and user-friendly platform for training and inference. The design prioritizes simplicity, intuitive usage, and rapid prototyping, while also supporting state-of-the-art model training and inference. The library includes:
 
-- **Unified Training and Inference**: Seamlessly train and infer rectified flow (flow matching) and diffusion models from a single, coherent ODE perspective.
-  
-- **Interactive Tutorials**: Engage with beginner-friendly tutorials that offer hands-on experience with rectified flows. Learn how to effortlessly transform rectified flow models into other models like DDIM and demonstrate their equivalence.
-  
-- **Comprehensive Tools**: Access a robust set of tools for studying Rectified Flow models, including interpolation methods and ODE/SDE solvers. Designed with the ODE framework in mind, these tools are both easy to comprehend and use.
-  
-- **Support for State-of-the-Art Models**: Utilize support for cutting-edge open-source models such as Flux.1-dev, ensuring that you can implement advanced tasks with surprising ease. Demos demonstrate how to perform sophisticated tasks like image editing with minimal effort.
+- **Simplified ODE Perspective**: Seamlessly train and infer rectified flow (flow matching) and diffusion models from a single, coherent ODE perspective.
+- **Comprehensive Tools**: 
+  - **Symbolic Interpolation Solvers**: Automatically handles affine interpolation, including interpolation and derivative computations, and provides symbolic solutions for interpolation equations.
+  - **Model Form Interconversion**: Seamlessly converts between different model forms, including score models, velocity predictions, and noise / image predictions.
+  - **Deterministic & Stochastic Sampling**: Offers unified support for both deterministic and stochastic sampling methods, enabling the implementation of various algorithmic approaches (such as DDIM and DDPM) within a single cohesive framework.
+
+- **Beginner-Friendly Tutorials**: Comprehensive tutorials designed to guide users from basic concepts to advanced implementations.
+- **Easy Integration with SOTA Models**: Effortlessly integrate state-of-the-art models, including Flux series, into the framework for enhanced flexibility and compatibility.
 
 Whether you are a researcher exploring the frontiers of generative modeling or a practitioner seeking to deepen your understanding through comprehensive tutorials, **RectifiedFlow** provides the essential resources and functionalities to advance your projects with confidence and ease.
 
@@ -32,12 +33,13 @@ Whether you are a researcher exploring the frontiers of generative modeling or a
 # Contents
 - [Installation](#installation)
 - [Getting Started](#getting-started)
+  - [Rectified Flow: A One-Minute Introduction](#rectified-flow-a-one-minute-introduction)
   - [A Quick Walkthrough](#a-quick-walkthrough)
   - [Interactive Tutorials](#interactive-tutorials)
   - [Training Pipelines](#training-pipelines)
 - [Customize Your Component](#customize-your-component)
-  - [Wrapping a New Velocity](#wrapping-a-new-velocity)
   - [Interpolation](#interpolation)
+  - [Wrapping a New Velocity](#wrapping-a-new-velocity)
   - [Training Utilities](#training-utilities)
   - [Customized Samplers](#customized-samplers)
 - [License](#license)
@@ -63,6 +65,20 @@ pip install -e .
 ```
 
 # Getting Started
+
+## **Rectified Flow: A One-Minute Introduction**
+
+Consider the task of learning an ODE model $\mathrm d Z_t = v_t(Z_t) \, \mathrm d t$ that transforms a noise distribution $X_0 \sim \pi_0$ into a data distribution $X_1 \sim \pi_1$. We begin by drawing random pairs $(X_0, X_1)$ (where $X_0$ and $X_1$) are independent by default, and then construct the interpolation $X_t = t X_1 + (1 - t) X_0.$ The rectified flow velocity is learned by minimizing
+
+$$
+\min_v \mathbb{E}_{X_0, X_1, t} \left[ \left\| \frac{\mathrm d}{\mathrm d t} X_t - v_t(X_t, t) \right\|^2 \right]
+$$
+
+where $t \sim \text{Uniform}([0, 1])$ and $\frac{\mathrm d}{\mathrm d t} X_t = X_1 - X_0$.
+
+After training the model $v_t$, we can solve the ODE $\mathrm d Z_t = v_t(Z_t) \, \mathrm d t$ with the initial condition $Z_0 \sim \pi_0$. This yields a set of pairs $(Z_0, Z_1)$, which can be treated as new data pairs $(X_0, X_1)$ to train a new model $v_t^{\text{reflow}}$. This "reflowed" model is known to produce straighter trajectories, allowing the ODE to be solved with fewer Euler steps and larger step sizes.
+
+Although ultimately unnecessary in theory (see Chapter 3 of the lecture notes), the codebase supports a more general affine interpolation $X_t = \alpha_t X_1 + \beta_t X_0$, where $\alpha_0 = \beta_1 = 0$ and $\alpha_1 = \beta_0 = 0$. This ensures compatibility with existing algorithms.
 
 ## A Quick Walkthrough
 The `RectifiedFlow` class serves as an **intermediary** for your training and inference processes. Each different velocity field should instantiate a separate `RectifiedFlow` class.
@@ -138,10 +154,10 @@ img = traj[-1]
 
 ## Interactive Tutorials
 
-1. **Introduction with 2D Toy**: This [notebook](examples/train_2d_toys.ipynb) provides an example using a 2D toy to illustrate the basic concepts of Rectified Flow. It covers the interpolation process $\{X_t\}$, the rectified flow $\{Z_t\}$ with velocity $\mathbb{E}[\dot{X}_t \mid X_t]$, and Reflow $\{Z^1_t\}$.
-2. **Samplers**: This [notebook](examples/samplers_2d_toys.ipynb) explores the samplers provided in this repository using a 2D toy example. It illustrates the concepts and usage of various samplers such as `CurvedEuler`, `Overshooting`, and `SDESampler`. Additionally, it demonstrates how to customize your own sampler by inheriting from the `Sampler` base class. And discusses the implications of using stochastic samplers.
-3. **Interpolation**: This [notebook](examples/interpolation_conversion.ipynb) first illustrates the idea that different interpolations $\{X_t\}$ can be converted from one another and presents a simple implementation to achieve this conversion. It also reveals the interesting fact that the very same transformation applies to $\{Z_t\}$, along with a few notable findings.
-4. **Flux**: We provide a [notebook](examples/inference_flux_dev.ipynb) that shows how to easily interact with the wrapped Flux model using different samplers. Additionally, another [notebook](examples/editing_flux_dev.ipynb) demonstrates how to perform image editing task with Flux. All in a straightforward and friendly manner.
+1. **Introduction with 2D Toy**: This [notebook](examples/train_2d_toys.ipynb) provides a 2D toy example to illustrate the fundamental concepts of Rectified Flow. It covers the basics of interpolation processes, the training and inference of rectified flow, and reflow, which straightens flow dynamics to achieve speedup.
+2. **Samplers**: This [notebook](examples/samplers_2d_toys.ipynb) explores the samplers available in this repository using a 2D toy example. It illustrates the concepts and usage of both deterministic and stochastic samplers. Additionally, it demonstrates how to customize a sampler by inheriting from the $\texttt{Sampler}$ base class and discusses the effects of using stochastic samplers.
+3. **Interpolation**: This [notebook](examples/interpolation_conversion.ipynb) introduces the idea that different affine interpolations can be converted from one form to another and provides a simple implementation to achieve this transformation. It also highlights the interesting observation that the same transformation applies to rectified flows — and, in fact, to their discretized trajectories produced by natural Euler samplers.
+4. **Flux**: We provide a [notebook](examples/inference_flux_dev.ipynb) that shows how to easily interact with the wrapped Flux model using different samplers. Additionally, another [notebook](examples/editing_flux_dev.ipynb) demonstrates how to perform image editing task with Flux. All implementations in a clear and accesible manner.
 
 ## Training Pipelines
 
@@ -164,12 +180,46 @@ model = DiT.from_pretrained(save_directory="PATH_TO_MODEL", filename="dit", use_
 
 # Customize Your Component
 
+## Interpolation
+
+The `AffineInterp` class manages the affine interpolation between the source distribution $\pi_0$ and the target distribution $\pi_1$. It offers two primary features:
+
+1. **Automatic Interpolation Handling**: Given an affine interpolation $X_t=\alpha_tX_1 + \beta_t X_0$, providing $\alpha_t$ and $\beta_t$ functions (along with optional time-derivative functions), `AffineInterp` computes the interpolated state $X_t$ and its time derivative $\dot X_t$. If the derivatives functions $\dot \alpha_t, \dot\beta_t$ are not supplied, they are calculated automatically using Pytorch automatic differentiation.
+
+   ```python
+   from rectified_flow.flow_components import AffineInterp
+   
+   alpha_function = lambda t: torch.sin(a * t) / torch.sin(a)
+   beta_function = lambda t: torch.sin(a * (1 - t)) / torch.sin(a)
+   
+   interp = AffineInterp(alpha=alpha_function, beta=beta_function)
+   
+   x_t, dot_x_t = interp.forward(x_0, x_1, t)
+   ```
+
+2. **Automatic Solving of Unknown Variables**: Given any two of the four variables ($X_0,X_1,X_t,\dot X_t$), the class can automatically solve for the remaining unknowns using precomputed symbolic solvers. This feature is very convenient when computing certain common quantities, such as estimating $\hat X_0$ and $\hat X_1$ given $X_t$ and $v(X_t, t)$.
+   ```python
+   # Solve for x_0 and x_1 given x_t and dot_x_t
+   interp.solve(t=t, x_t=x_t, dot_x_t=velocity)
+   print(interp.x_0, interp.x_1)
+   ```
+   
+$$
+\begin{cases}
+X_t = \alpha_t X_1 + \beta_t X_0 \\
+\dot X_t = \dot \alpha_t X_1 + \dot \beta_t X_0
+\end{cases}
+$$
+
+   
+
 ## Wrapping a New Velocity
 
 The `velocity_field` argument in the `RectifiedFlow` class accepts a neural network or any callable function that takes $x_t$ and $t$ as inputs. If you need to reparameterize the model or reverse the direction of the generating ODE time (from $t = 1 \to 0$ to $t = 0 \to 1$), we recommend using a velocity field wrapper to simplify the process.
 
 1. **Reversing the Time Direction**  
-   In scenarios like Flux, where the velocity transitions from $\pi_1$ to $\pi_0$ for image generation, reversing the ODE time direction is often required. A simple wrapper achieves this.
+
+   In Rectified Flow, we assume that at $t = 0$, $X_0 \sim \pi_0$ represents the **source distribution**, and at $t = 1$, $X_1 \sim \pi_1$ represents the **target distribution**, such as an image distribution. In scenarios like Flux, where the velocity transitions from $\pi_1$ to $\pi_0$ for image generation, it is often necessary to reverse the ODE time direction. This can be easily achieved by using a simple wrapper:
 
    ```python
    # Reverse ODE time direction
@@ -181,32 +231,9 @@ The `velocity_field` argument in the `RectifiedFlow` class accepts a neural netw
 
    ```python
    # Convert noise prediction to velocity prediction
+   # Assume model is trained by minimizing ((x0 - model(x_t, t))**2).mean(), with x_t = a_t * x_1 + b_t*x_0, where x_0 is noise, and x_1 is data.
    velocity = lambda x_t, t: self.interp.solve(t=t, x_t=x_t, x_0=model(x_t, t)).dot_x_t
    ```
-In Rectified Flow, we assume that when $t = 0$, $X_0 \sim \pi_0$ represents the **source distribution**, and when $t = 1$, $X_1 \sim \pi_1$ represents the **target distribution**, such as an image distribution.
-
-## Interpolation
-
-The `AffineInterp` class manages the affine interpolation between the source distribution $\pi_0$ and the target distribution $\pi_1$. It offers two primary features:
-
-1. **Automatic Interpolation Handling**: By providing $\alpha_t$ and $\beta_t$ functions (along with optional $\dot{\alpha}_t$ and $\dot\beta_t$), `AffineInterp` computes the interpolated state $X_t$ and its time derivative $\dot X_t$. If the derivatives functions $\dot \alpha_t, \dot\beta_t$ are not supplied, they are calculated automatically using Pytorch automatic differentiation.
-   ```python
-   from rectified_flow.flow_components import AffineInterp
-
-   alpha_function = lambda t: torch.sin(a * t) / torch.sin(a)
-   beta_function = lambda t: torch.sin(a * (1 - t)) / torch.sin(a)
-
-   interp = AffineInterp(alpha=alpha_function, beta=beta_function)
-
-   x_t, dot_x_t = interp.forward(x_0, x_1, t)
-   ```
-2. **Automatic Solving of Unknown Variables**: Given any two of the four variables ($X_0,X_1,X_t,\dot X_t$), the class can automatically solve for the remaining unknowns using precomputed symbolic solvers. This feature is very convenient when computing certain common quantities, such as estimating $\hat X_0$ and $\hat X_1$ given $X_t$ and $v(X_t, t)$.
-
-    ```python
-    # Solve for x_0 and x_1 given x_t and dot_x_t
-    interp.solve(t=t, x_t=x_t, dot_x_t=velocity)
-    print(interp.x_0, interp.x_1)
-    ```
 
 ## Training Utilities
 
