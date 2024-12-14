@@ -4,7 +4,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) 
 [![Blog](https://img.shields.io/badge/blog-blue)](https://rectifiedflow.github.io)
-[![Lecture Notes](https://img.shields.io/badge/book-blue)](https://github.com/lqiang67/rectified-flow/tree/main/pdf)
+[![Lecture Notes](https://img.shields.io/badge/lecture%20notes-blue)](https://github.com/lqiang67/rectified-flow/tree/main/pdf)
 [![Email](https://img.shields.io/badge/email-blue)](mailto:rectifiedflow@gmail.com)
 
 ______________________________________________________________________
