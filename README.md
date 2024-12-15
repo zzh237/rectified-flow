@@ -149,6 +149,15 @@ return self.criterion(
 
 ```
 
+After training, converting a pretrained rectified flow to another interpolation scheme (as long as alpha and beta are specified) can be done easily and automatically by:
+```python
+from rectified_flow.flow_components.interpolation_convertor import AffineInterpConverter
+
+# Converting pretrained rf into spherical one
+target_interp = AffineInterp("spherical")
+converted_spherical_rf = AffineInterpConverter(rf, target_interp).transform_rectified_flow()
+```
+
 For sampling, import the desired sampler class and pass the `RectifiedFlow` instance to it.
 ```python
 from rectified_flow.samplers import SDESampler
