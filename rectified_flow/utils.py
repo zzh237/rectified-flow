@@ -247,12 +247,18 @@ def visualize_2d_trajectories_plotly(
         "#A0C696",
     ]
 
+    marker_list = [
+        "circle", "cross", "x", "square", "star", "diamond",  
+        "triangle-up", "triangle-down", "hexagram"
+    ]
+
     trajectory_names = list(trajectories_dict.keys())
     colors = {}
     for i, name in enumerate(trajectory_names):
         colors[name] = {
             "particle_color": particle_colors[i % len(particle_colors)],
             "trajectory_color": trajectory_colors[i % len(trajectory_colors)],
+            "marker": marker_list[i % len(marker_list)],
         }
 
     # Process trajectories and store data
@@ -291,6 +297,7 @@ def visualize_2d_trajectories_plotly(
     for trajectory_name, xtraj in trajectory_data.items():
         particle_color = colors[trajectory_name]["particle_color"]
         trajectory_color = colors[trajectory_name]["trajectory_color"]
+        marker_symbol = colors[trajectory_name]["marker"]
         time_steps = xtraj.shape[0]
         num_points = xtraj.shape[1]
         indices = np.arange(min(num_trajectories, num_points))
@@ -325,7 +332,12 @@ def visualize_2d_trajectories_plotly(
                 y=xtraj[0, :, dim1],
                 mode="markers",
                 name=f"{trajectory_name} x_0",
-                marker=dict(size=markersize, opacity=alpha_gt_points, color="blue"),
+                marker=dict(
+                    size=markersize, 
+                    opacity=alpha_gt_points, 
+                    color="blue", 
+                    symbol=marker_symbol
+                ),
                 showlegend=False,
             )
         )
@@ -365,6 +377,7 @@ def visualize_2d_trajectories_plotly(
         frame_trace_indices = []
         for trajectory_name, xtraj in trajectory_data.items():
             particle_color = colors[trajectory_name]["particle_color"]
+            marker_symbol = colors[trajectory_name]["marker"]
 
             if t >= xtraj.shape[0]:
                 continue
@@ -378,7 +391,11 @@ def visualize_2d_trajectories_plotly(
                     x=x,
                     y=y,
                     mode="markers",
-                    marker=dict(size=markersize, color=particle_color),
+                    marker=dict(
+                        size=markersize, 
+                        color=particle_color,
+                        symbol=marker_symbol,
+                    ),
                     opacity=alpha_particles,
                     name=f"{trajectory_name} x_t",
                     showlegend=True,
@@ -421,24 +438,25 @@ def visualize_2d_trajectories_plotly(
     fig.update_layout(
         sliders=sliders,
         updatemenus=[
-            dict(
-                type="buttons",
-                buttons=[
-                    dict(
-                        label="Play",
-                        method="animate",
-                        args=[
+            {
+                "type": "buttons",
+                "buttons": [
+                    {
+                        "label": "Play",
+                        "method": "animate",
+                        "args": [
                             None,
-                            dict(
-                                frame=dict(duration=500, redraw=True),
-                                transition=dict(duration=0),
-                                fromcurrent=True,
-                                mode="immediate",
-                            ),
+                            {
+                                "frame": {"duration": 500, "redraw": False},
+                                "transition": {"duration": 300, "easing": "quadratic-in-out"},
+                                "fromcurrent": True,
+                                "mode": "immediate",
+                                "loop": True,
+                            },
                         ],
-                    )
+                    },
                 ],
-            )
+            }
         ],
         xaxis_title=f"Dimension {dim0}",
         yaxis_title=f"Dimension {dim1}",
