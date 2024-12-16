@@ -17,8 +17,6 @@ ______________________________________________________________________
 
 - **Companion Resources**: Includes a [![Blog](https://img.shields.io/badge/blog-blue)](https://rectifiedflow.github.io), [![Lecture Notes](https://img.shields.io/badge/lecture%20notes-blue)](https://github.com/lqiang67/rectified-flow/tree/main/pdf), and beginner-friendly [![Notebooks](https://img.shields.io/badge/Notebooks-orange)](https://github.com/lqiang67/rectified-flow/tree/main/examples) covering concepts from basics to advanced implementations.
 
-- **Simplified ODE Perspective**: Train and infer rectified flow (RF) and diffusion models using a unified ODE approach, including learning 1-rectified flow from data (a.k.a. flow matching), reflow for speedup, and diffusion as stochastic RF sampling.
-
 - **Unified ODE Framework**: Train and infer rectified flow (RF) and diffusion models using a unified ODE approach, including 1-rectified flow from data (flow matching), reflow for speedup, diffusion as RF+Langevin, post-training conversion of affine interpolation schemes, analytic models, etc. 
 
 - **Symbolic Algorithm Derivation**: We use a symbolic solver for affine interpolation to automate the derivation of algorithms and formulas, enabling easy model conversion between various forms like score functions, velocity fields, and noise predictions. This eliminates the need for manual derivation in both existing and new algorithms (e.g., the DDIM/DDPM coefficients). 
