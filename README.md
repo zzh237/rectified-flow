@@ -19,12 +19,11 @@ ______________________________________________________________________
 
 - **Simplified ODE Perspective**: Train and infer rectified flow (RF) and diffusion models using a unified ODE approach, including learning 1-rectified flow from data (a.k.a. flow matching), reflow for speedup, and diffusion as stochastic RF sampling.
 
-- **Easy Integration with SOTA Models**: Easily integrate state-of-the-art models, including the Flux series, for greater flexibility and compatibility.
+- **Unified ODE Framework**: Train and infer rectified flow (RF) and diffusion models using a unified ODE approach, including 1-rectified flow from data (flow matching), reflow for speedup, diffusion as RF+Langevin, post-training conversion of affine interpolation schemes, analytic models, etc. 
 
-- **Comprehensive Tools**:  
-  - **Symbolic Interpolation**: Automates affine interpolation and its derivatives with symbolic solutions.  
-  - **Model Conversion**: Converts between score models, velocity predictions, and noise/image predictions.  
-  - **Stochastic Sampling**: Supports both deterministic and stochastic sampling (e.g., DDPM) in one framework.  
+- **Symbolic Algorithm Derivation**: We use a symbolic solver for affine interpolation to automate the derivation of algorithms and formulas, enabling easy model conversion between various forms like score functions, velocity fields, and noise predictions. This eliminates the need for manual derivation in both existing and new algorithms (e.g., the DDIM/DDPM coefficients). 
+
+- **Easy Integration with SOTA Models**: Easily integrate state-of-the-art models, including the Flux series, for greater flexibility and compatibility.
 
 ---
 
