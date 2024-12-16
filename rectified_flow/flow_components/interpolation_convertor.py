@@ -50,6 +50,12 @@ class AffineInterpConverter:
         target_time: torch.Tensor,
     ):
         """Given t' from target_interp, return corresponding t from source_interp and scaling factor."""
+        
+        if source_interp.name == "straight":
+            matched_t = target_interp.alpha(target_time) / (target_interp.alpha(target_time) + target_interp.beta(target_time))
+            scaling_factor = 1. / (target_interp.alpha(target_time) + target_interp.beta(target_time))
+            return matched_t, scaling_factor
+
         source_ratio = lambda s: source_interp.alpha(s) / source_interp.beta(s)
         target_ratio = target_interp.alpha(target_time) / (target_interp.beta(target_time))
         raw_matched_t = AffineInterpConverter.binary_search_for_time(function=source_ratio, target=target_ratio)
