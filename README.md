@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://github.com/lqiang67/rectified-flow/blob/main/assets/logo_header.png?raw=true" alt="Logo" style="width: 75%; height: auto;">
+<img src="https://github.com/lqiang67/rectified-flow/blob/main/assets/logo_header.png?raw=true" alt="Logo" style="width: 100%; height: auto;">
 
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) 
 [![Blog](https://img.shields.io/badge/blog-blue)](https://rectifiedflow.github.io)
