@@ -12,4 +12,5 @@ rf_samplers_dict = {
     "overshooting": OverShootingSampler,
     "sde": SDESampler,
     "curved_sde": StochasticCurvedEulerSampler,
+    "stochastic_curved_euler": StochasticCurvedEulerSampler
 }
