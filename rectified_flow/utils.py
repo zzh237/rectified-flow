@@ -437,7 +437,7 @@ def visualize_2d_trajectories_plotly(
         dict(
             active=0,
             currentvalue={"prefix": "Step: "},
-            pad={"t": 50},
+            pad={"t": 20},
             steps=slider_steps,
         )
     ]
@@ -470,7 +470,7 @@ def visualize_2d_trajectories_plotly(
         showline=False,
         zeroline=False,
         mirror=False,
-        dtick=2.0,
+        dtick=1.0,
     )
 
     # Update figure layout
@@ -479,6 +479,11 @@ def visualize_2d_trajectories_plotly(
         updatemenus=[
             {
                 "type": "buttons",
+                "x": 0.5,               # 按钮组水平方向放在图中心
+                "xanchor": "center",
+                "y": -0.05,             # 视需求微调，使按钮位于图下方
+                "yanchor": "middle",
+                "pad": {"t": 10, "b": 10},
                 "buttons": [
                     {
                         "label": "Play",
@@ -497,7 +502,8 @@ def visualize_2d_trajectories_plotly(
                 ],
             }
         ],
-        title=title,
+        title=dict(text=title, x=0.5),
+        margin=dict(l=20, r=20, t=50, b=20),
         showlegend=show_legend,
         height=600,
         width=900,
