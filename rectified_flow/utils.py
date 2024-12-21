@@ -162,7 +162,7 @@ def visualize_2d_trajectories(
             D1_gt_samples[:, dim0],
             D1_gt_samples[:, dim1],
             ".",
-            label="D1",
+            label="GT data",
             markersize=markersize,
             alpha=alpha_gt_points,
         )
@@ -289,9 +289,10 @@ def visualize_2d_trajectories_plotly(
                 x=D1_gt_samples[:, dim0],
                 y=D1_gt_samples[:, dim1],
                 mode="markers",
-                name="D1 ground truth",
+                name="GT data",
                 marker=dict(size=markersize, opacity=alpha_gt_points, color="red"),
                 showlegend=show_legend,
+                hovertemplate='(%{x:.3f}, %{y:.3f})<extra>%{fullData.name}</extra>'
             )
         )
 
@@ -329,6 +330,8 @@ def visualize_2d_trajectories_plotly(
                 line=dict(dash="solid", color=trajectory_color, width=1.5),
                 opacity=alpha_trajectories,
                 showlegend=True,
+                # hovertemplate='(%{x:.3f}, %{y:.3f})<extra>%{fullData.name} traj</extra>'
+                hoverinfo="skip",
             )
         )
         current_trace_index += 1
@@ -339,7 +342,7 @@ def visualize_2d_trajectories_plotly(
                 x=xtraj[0, :, dim0],
                 y=xtraj[0, :, dim1],
                 mode="markers",
-                name=f"{trajectory_name} x_0",
+                name=f"{trajectory_name} source dist",
                 marker=dict(
                     size=markersize, 
                     opacity=alpha_gt_points, 
@@ -347,6 +350,7 @@ def visualize_2d_trajectories_plotly(
                     symbol=marker_symbol
                 ),
                 showlegend=False,
+                hovertemplate='(%{x:.3f}, %{y:.3f})<extra>%{fullData.name}</extra>'
             )
         )
         current_trace_index += 1
@@ -372,6 +376,7 @@ def visualize_2d_trajectories_plotly(
                 name=f"{info['trajectory_name']}",
                 marker=dict(size=markersize, color=info["particle_color"]),
                 showlegend=False,
+                hovertemplate='(%{x:.3f}, %{y:.3f})<extra>%{fullData.name}</extra>'
             )
         )
         info["trace_index"] = current_trace_index
@@ -405,8 +410,9 @@ def visualize_2d_trajectories_plotly(
                         symbol=marker_symbol,
                     ),
                     opacity=alpha_particles,
-                    name=f"{trajectory_name} x_t",
+                    name=f"{trajectory_name} particle",
                     showlegend=False,
+                    hovertemplate='(%{x:.3f}, %{y:.3f})<extra>%{fullData.name}</extra>'
                 )
             )
             frame_trace_indices.append(trace_index)
@@ -479,9 +485,9 @@ def visualize_2d_trajectories_plotly(
         updatemenus=[
             {
                 "type": "buttons",
-                "x": 0.5,               # 按钮组水平方向放在图中心
+                "x": 0.5,
                 "xanchor": "center",
-                "y": -0.05,             # 视需求微调，使按钮位于图下方
+                "y": -0.05,
                 "yanchor": "middle",
                 "pad": {"t": 10, "b": 10},
                 "buttons": [
@@ -502,7 +508,11 @@ def visualize_2d_trajectories_plotly(
                 ],
             }
         ],
-        title=dict(text=title, x=0.5),
+        title=dict(
+            text=title,
+            x=0.03,
+            xanchor="left",
+        ),
         margin=dict(l=20, r=20, t=50, b=20),
         showlegend=show_legend,
         height=600,
