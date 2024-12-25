@@ -208,7 +208,7 @@ def visualize_2d_trajectories_plotly(
     dimensions: list[int] = [0, 1],
     alpha_trajectories: float = 0.5,
     alpha_particles: float = 0.8,
-    alpha_gt_points: float = 1.0,
+    alpha_gt_points: float = 0.3,
     show_legend: bool = True,
     title: str = "2D Trajectories Visualization",
 ):
@@ -327,7 +327,7 @@ def visualize_2d_trajectories_plotly(
                 y=all_line_y,
                 mode="lines",
                 name=f"{trajectory_name}",
-                line=dict(dash="solid", color=trajectory_color, width=1.5),
+                line=dict(dash="solid", color=trajectory_color, width=0.6),
                 opacity=alpha_trajectories,
                 showlegend=True,
                 # hovertemplate='(%{x:.3f}, %{y:.3f})<extra>%{fullData.name} traj</extra>'
@@ -410,7 +410,7 @@ def visualize_2d_trajectories_plotly(
                         symbol=marker_symbol,
                     ),
                     opacity=alpha_particles,
-                    name=f"{trajectory_name} particle",
+                    name=f"{trajectory_name}",
                     showlegend=False,
                     hovertemplate='(%{x:.3f}, %{y:.3f})<extra>%{fullData.name}</extra>'
                 )
@@ -452,31 +452,33 @@ def visualize_2d_trajectories_plotly(
     min_y, max_y = np.min(all_y), np.max(all_y)
     delta_x = 0.02 * (max_x - min_x) 
     delta_y = 0.02 * (max_y - min_y)
+    dtick_x = (max_x - min_x) / 10.
+    dtick_y = (max_y - min_y) / 8.
 
     fig.update_xaxes(
         range=[min_x - delta_x, max_x + delta_x],
         showgrid=True,             
         gridcolor="white",         
-        gridwidth=1,              
+        gridwidth=0.5,              
         griddash="dot",          
         showticklabels=False,      
         showline=False,            
         zeroline=False,           
         mirror=False,
-        dtick=2.0,               
+        dtick=dtick_x,               
     )
 
     fig.update_yaxes(
         range=[min_y - delta_y, max_y + delta_y],
         showgrid=True,
         gridcolor="white",
-        gridwidth=1,
+        gridwidth=0.5,
         griddash="dot",
         showticklabels=False,
         showline=False,
         zeroline=False,
         mirror=False,
-        dtick=1.0,
+        dtick=dtick_y,
     )
 
     # Update figure layout
@@ -516,7 +518,7 @@ def visualize_2d_trajectories_plotly(
         margin=dict(l=20, r=20, t=50, b=20),
         showlegend=show_legend,
         height=600,
-        width=900,
+        width=900 if show_legend else 600,
         # autosize=True,
     )
 
@@ -525,7 +527,6 @@ def visualize_2d_trajectories_plotly(
 
     # Show figure
     fig.show()
-
 
 def plot_cifar_results(images, nrow=10, title=None):
     images = (images.cpu().detach().clone() * 0.5 + 0.5).clamp(0, 1)
