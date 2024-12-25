@@ -62,4 +62,4 @@ class AnalyticGaussianVelocity(nn.Module):
         # print(v.shape)
         # print(f"weighted_dataset: {weighted_dataset.shape}")  # weighted_dataset: (Batch, D)
 
-        return v.reshape(self.data_shape)
+        return v.reshape(x_t.shape[0], *self.data_shape)
