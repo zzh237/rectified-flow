@@ -175,7 +175,7 @@ img = traj[-1]
 
 ## Training Pipelines
 
-We provide **[Diffusers](https://github.com/huggingface/diffusers)-style** training scripts for [UNet](https://github.com/NVlabs/edm). and [DiT](https://github.com/facebookresearch/DiT) in this [directory](rectified_flow/pipelines). The training scripts utilizes **[Accelerate](https://github.com/huggingface/accelerate)** for multi-GPU training.
+We provide **[Diffusers](https://github.com/huggingface/diffusers)-style** training scripts for [UNet](https://github.com/NVlabs/edm) and [DiT](https://github.com/facebookresearch/DiT) in this [directory](rectified_flow/pipelines). The training scripts utilizes **[Accelerate](https://github.com/huggingface/accelerate)** for multi-GPU training.
 
 **Results Using this Training Scripts**:
 
