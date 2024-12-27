@@ -15,18 +15,13 @@ class AnalyticGaussianVelocity(nn.Module):
     ):
         super().__init__()
         self.data_shape = dataset.shape[1:]
-        dataset = dataset.detach().clone().reshape(dataset.shape[0], -1)
-        self.dataset = nn.Parameter(dataset.detach().clone())  # (N_data, D)
+        self.dataset = dataset.detach().clone().reshape(dataset.shape[0], -1)
         self.dataset.requires_grad = False
         self.dataset_norm = self.dataset.norm(dim=1).pow(2)
         self.interp = interp
 
+    @torch.inference_mode()
     def forward(self, x_t, t):
-        at, bt, dot_at, dot_bt = self.interp.get_coeffs(t, detach=True)
-        return self.get_analytic_velocity(x_t, at, dot_at, bt, dot_bt)
-
-    @torch.no_grad()
-    def get_analytic_velocity(self, x_t, a_t, dot_a_t, b_t, dot_b_t):
         """
         x_t shape: (Batch, D)
         a_t, dot_a_t, b_t, dot_b_t shape: (Batch,)
@@ -35,9 +30,11 @@ class AnalyticGaussianVelocity(nn.Module):
             x_t.shape[1:] == self.data_shape
         ), f"x_t shape: {x_t.shape}, data_shape: {self.data_shape}"
 
+        a_t, b_t, dot_a_t, dot_b_t = self.interp.get_coeffs(t, detach=True)
+
         x_t = x_t.reshape(x_t.shape[0], -1)  # (Batch, D)
 
-        term_1 = x_t.norm(dim=1).pow(2)
+        term_1 = torch.sum(x_t**2, dim=1)
         term_2 = torch.einsum("bd, nd -> bn", [x_t, self.dataset])
         term_3 = self.dataset_norm
 
