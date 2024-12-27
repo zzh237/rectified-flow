@@ -119,7 +119,7 @@ class RectifiedFlow:
 
         self.independent_coupling = is_independent_coupling
 
-    def sample_train_time(self, batch_size: int, expand_dim: bool = True):
+    def sample_train_time(self, batch_size: int, expand_dim: bool = False):
         r"""This method calls the `TrainTimeSampler` to sample training times.
 
         Returns:

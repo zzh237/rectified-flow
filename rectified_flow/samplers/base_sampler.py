@@ -230,8 +230,8 @@ class Sampler:
         # Runs the sampling process
         while not self.stop():
             self.step(**model_kwargs)
-            self.record()
             self.set_next_time_point()
+            self.record()
 
         return self
 

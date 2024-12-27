@@ -1,5 +1,5 @@
-export OUTPUT_DIR="/root/autodl-tmp/dit_skip_cifar"
-export DATA_ROOT="/root/autodl-tmp/cifar10"
+export OUTPUT_DIR=""
+export DATA_ROOT=""
 
 accelerate launch -m rectified_flow.pipelines.train_dit_cifar \
   --output_dir="$OUTPUT_DIR" \
