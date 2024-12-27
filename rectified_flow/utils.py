@@ -206,9 +206,9 @@ def visualize_2d_trajectories_plotly(
     num_trajectories: int = 50,
     markersize: int = 3,
     dimensions: list[int] = [0, 1],
-    alpha_trajectories: float = 0.5,
+    alpha_trajectories: float = 0.7,
     alpha_particles: float = 0.8,
-    alpha_gt_points: float = 0.3,
+    alpha_gt_points: float = 0.8,
     show_legend: bool = True,
     title: str = "2D Trajectories Visualization",
 ):
@@ -289,10 +289,10 @@ def visualize_2d_trajectories_plotly(
                 x=D1_gt_samples[:, dim0],
                 y=D1_gt_samples[:, dim1],
                 mode="markers",
-                name="GT data",
-                marker=dict(size=markersize, opacity=alpha_gt_points, color="red"),
+                name=r"$\pi_1$ (target)",
+                marker=dict(size=markersize, opacity=alpha_gt_points, color="lightsalmon"),
                 showlegend=show_legend,
-                hovertemplate='(%{x:.3f}, %{y:.3f})<extra>%{fullData.name}</extra>'
+                hovertemplate='(%{x:.3f}, %{y:.3f})<extra>target data</extra>'
             )
         )
 
@@ -342,15 +342,15 @@ def visualize_2d_trajectories_plotly(
                 x=xtraj[0, :, dim0],
                 y=xtraj[0, :, dim1],
                 mode="markers",
-                name=f"{trajectory_name} source dist",
+                name=r"$\pi_0$ (initial noise)",
                 marker=dict(
                     size=markersize, 
                     opacity=alpha_gt_points, 
-                    color="blue", 
+                    color="royalblue", 
                     symbol=marker_symbol
                 ),
                 showlegend=False,
-                hovertemplate='(%{x:.3f}, %{y:.3f})<extra>%{fullData.name}</extra>'
+                hovertemplate='(%{x:.3f}, %{y:.3f})<extra>initial noise</extra>'
             )
         )
         current_trace_index += 1
@@ -452,33 +452,31 @@ def visualize_2d_trajectories_plotly(
     min_y, max_y = np.min(all_y), np.max(all_y)
     delta_x = 0.02 * (max_x - min_x) 
     delta_y = 0.02 * (max_y - min_y)
-    dtick_x = (max_x - min_x) / 10.
-    dtick_y = (max_y - min_y) / 8.
+    dtick_x = (max_x - min_x) / 9.
+    dtick_y = (max_y - min_y) / 6.
 
     fig.update_xaxes(
         range=[min_x - delta_x, max_x + delta_x],
-        showgrid=True,             
-        gridcolor="white",         
-        gridwidth=0.5,              
-        griddash="dot",          
+        showgrid=True,        
+        griddash="solid",          
         showticklabels=False,      
         showline=False,            
         zeroline=False,           
         mirror=False,
-        dtick=dtick_x,               
+        dtick=dtick_x,
+        tick0=min_x,          
     )
 
     fig.update_yaxes(
         range=[min_y - delta_y, max_y + delta_y],
         showgrid=True,
-        gridcolor="white",
-        gridwidth=0.5,
-        griddash="dot",
+        griddash="solid",
         showticklabels=False,
         showline=False,
         zeroline=False,
         mirror=False,
         dtick=dtick_y,
+        tick0=min_y,
     )
 
     # Update figure layout
@@ -517,8 +515,9 @@ def visualize_2d_trajectories_plotly(
         ),
         margin=dict(l=20, r=20, t=50, b=20),
         showlegend=show_legend,
-        height=600,
-        width=900 if show_legend else 600,
+        height=400,
+        width=560 if show_legend else 400,
+        template="plotly_white",
         # autosize=True,
     )
 
