@@ -20,7 +20,7 @@ class AnalyticGaussianVelocity(nn.Module):
         self.dataset_norm = self.dataset.norm(dim=1).pow(2)
         self.interp = interp
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def forward(self, x_t, t):
         """
         x_t shape: (Batch, D)
