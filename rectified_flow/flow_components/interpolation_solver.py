@@ -253,23 +253,14 @@ class AffineInterp(nn.Module):
                 b = 0.1
                 self.alpha = lambda t: torch.exp(-a * (1 - t) ** 2 / 4.0 - b * (1 - t) / 2.0)
                 self.beta = lambda t: torch.sqrt(1 - self.alpha(t) ** 2)
+                self.alpha = None
+                self.beta = None
 
             else:
                 raise ValueError(
                     f"Unknown interpolation scheme name '{name}'. Provide a known scheme name "
                     "or supply custom alpha/beta functions."
                 )
-
-        self.alpha = lambda t: alpha(self.ensure_tensor(t))
-        self.beta = lambda t: beta(self.ensure_tensor(t))
-        if dot_alpha is not None:
-            self.dot_alpha = lambda t: dot_alpha(self.ensure_tensor(t))
-        else:
-            self.dot_alpha = None
-        if dot_beta is not None:
-            self.dot_beta = lambda t: dot_beta(self.ensure_tensor(t))
-        else:
-            self.dot_beta = None
 
         self.solver = AffineInterpSolver()
         self.a_t = None
