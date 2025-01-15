@@ -401,38 +401,24 @@ class FourierEmbedding(torch.nn.Module):
 
 @dataclass
 class SongUNetConfig:
-    img_resolution: int  # Image resolution at input/output.
-    in_channels: int  # Number of color channels at input.
-    out_channels: int  # Number of color channels at output.
-    label_dim: int = 0  # Number of class labels, 0 = unconditional.
-    augment_dim: int = 0  # Augmentation label dimensionality, 0 = no augmentation.
+    img_resolution: int     # Image resolution at input/output.
+    in_channels: int        # Number of color channels at input.
+    out_channels: int       # Number of color channels at output.
+    label_dim: int = 0      # Number of class labels, 0 = unconditional.
+    augment_dim: int = 0    # Augmentation label dimensionality, 0 = no augmentation.
 
-    model_channels: int = 128  # Base multiplier for the number of channels.
-    channel_mult: list[int] = (
-        2,
-        2,
-        2,
-    )  # Per-resolution multipliers for the number of channels.
-    channel_mult_emb: int = (
-        4  # Multiplier for the dimensionality of the embedding vector.
-    )
-    num_blocks: int = 4  # Number of residual blocks per resolution.
-    attn_resolutions: list[int] = (16,)  # List of resolutions with self-attention.
-    dropout: float = 0.10  # Dropout probability of intermediate activations.
-    label_dropout: float = (
-        0.0  # Dropout probability of class labels for classifier-free guidance.
-    )
-
-    embedding_type: str = (
-        "positional"  # Timestep embedding type: 'positional' or 'fourier'.
-    )
-    channel_mult_time: int = 1  # Timestep embedding size: 1 for DDPM++, 2 for NCSN++.
-    encoder_type: str = "standard"  # Encoder architecture: 'standard' or 'residual'.
-    decoder_type: str = "standard"  # Decoder architecture: 'standard' or 'residual'.
-    resample_filter: list[int] = (
-        1,
-        1,
-    )  # Resampling filter, e.g., [1, 1] or [1, 3, 3, 1].
+    model_channels: int = 128             # Base multiplier for the number of channels.
+    channel_mult: list[int] = [2, 2, 2]   # Per-resolution multipliers for the number of channels.
+    channel_mult_emb: int = 4             # Multiplier for the dimensionality of the embedding vector.
+    num_blocks: int = 4                   # Number of residual blocks per resolution.
+    attn_resolutions: list[int] = [16]    # List of resolutions with self-attention.
+    dropout: float = 0.13                 # Dropout probability of intermediate activations.
+    label_dropout: float = 0.0            # Dropout probability of class labels for classifier-free guidance.
+    embedding_type: str = "positional"    # Timestep embedding type: 'positional' or 'fourier'.
+    channel_mult_time: int = 1            # Timestep embedding size: 1 for DDPM++, 2 for NCSN++.
+    encoder_type: str = "standard"        # Encoder architecture: 'standard' or 'residual'.
+    decoder_type: str = "standard"        # Decoder architecture: 'standard' or 'residual'.
+    resample_filter: list[int] = [1, 1]   # Resampling filter, e.g., [1, 1] or [1, 3, 3, 1].
 
 
 class SongUNet(torch.nn.Module):
