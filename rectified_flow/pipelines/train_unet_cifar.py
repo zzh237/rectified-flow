@@ -287,13 +287,6 @@ def parse_args():
         help="The beta2 parameter for the Adam and Prodigy optimizers.",
     )
     parser.add_argument(
-        "--adam_weight_decay",
-        type=float,
-        default=1e-04,
-        help="Weight decay to use for unet params",
-    )
-
-    parser.add_argument(
         "--adam_epsilon",
         type=float,
         default=1e-08,
@@ -435,10 +428,9 @@ def main(args):
     model_params_with_lr = {"params": model.parameters(), "lr": args.learning_rate}
     params_to_optimize = [model_params_with_lr]
 
-    optimizer = torch.optim.AdamW(
+    optimizer = torch.optim.Adam(
         params_to_optimize,
         betas=(args.adam_beta1, args.adam_beta2),
-        weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
     )
 

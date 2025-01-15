@@ -11,11 +11,11 @@ accelerate launch -m rectified_flow.pipelines.train_unet_cifar \
   --max_train_steps=1000000 \
   --checkpointing_steps=20000 \
   --learning_rate=2e-4 \
-  --adam_beta1=0.99 \
+  --adam_beta1=0.9 \
   --adam_beta2=0.999 \
   --adam_weight_decay=0.03 \
   --lr_scheduler="constant_with_warmup" \
-  --lr_warmup_steps=2500 \
+  --lr_warmup_steps=10000 \
   --random_flip \
   --allow_tf32 \
   --interp="straight" \
