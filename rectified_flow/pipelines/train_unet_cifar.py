@@ -36,7 +36,7 @@ class EMAModel:
         self, 
         net: torch.nn.Module, 
         ema_halflife_kimg: float = 500.0, 
-        ema_rampup_ratio: float = 0.05
+        ema_rampup_ratio: float = 0.05,
     ):
         self.net = net
         self.ema = copy.deepcopy(net).eval()
@@ -52,7 +52,7 @@ class EMAModel:
 
         Args:
             cur_nimg (int): The current number of images (could be total images processed so far).
-            batch_size (int): The batch size used in training for this iteration.
+            batch_size (int): The global batch size.
         """
         ema_halflife_nimg = self.ema_halflife_kimg * 1000
 
@@ -67,7 +67,6 @@ class EMAModel:
     def apply_shadow(self):
         """
         Copy EMA parameters back to the original `net`.
-        This effectively overwrites the network's parameters with the EMA values.
         """
         for p_net, p_ema in zip(self.net.parameters(), self.ema.parameters()):
             p_net.data.copy_(p_ema.data)
