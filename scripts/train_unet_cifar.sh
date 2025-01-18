@@ -13,7 +13,6 @@ accelerate launch -m rectified_flow.pipelines.train_unet_cifar \
   --learning_rate=2e-4 \
   --adam_beta1=0.9 \
   --adam_beta2=0.999 \
-  --adam_weight_decay=0.03 \
   --lr_scheduler="constant_with_warmup" \
   --lr_warmup_steps=10000 \
   --random_flip \

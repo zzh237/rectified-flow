@@ -32,52 +32,71 @@ logger = get_logger(__name__)
 
 
 class EMAModel:
-    def __init__(self, model, decay=0.9999):
-        self.model = model
-        self.decay = decay
-        self.shadow = {k: v.clone().detach() for k, v in model.state_dict().items()}
+    def __init__(
+        self, 
+        net: torch.nn.Module, 
+        ema_halflife_kimg: float = 500.0, 
+        ema_rampup_ratio: float = 0.05
+    ):
+        self.net = net
+        self.ema = copy.deepcopy(net).eval()
+        for param in self.ema.parameters():
+            param.requires_grad_(False)
+        self.ema_halflife_kimg = ema_halflife_kimg
+        self.ema_rampup_ratio = ema_rampup_ratio
 
     @torch.no_grad()
-    def update(self):
-        for name, param in self.model.named_parameters():
-            if name in self.shadow:
-                self.shadow[name].mul_(self.decay).add_(
-                    param.data, alpha=1 - self.decay
-                )
-            else:
-                self.shadow[name] = param.data.clone()
-                print(f"Warning: EMA shadow does not contain parameter {name}")
+    def update(self, cur_nimg: int, batch_size: int):
+        """
+        Update EMA parameters using a half-life strategy.
+
+        Args:
+            cur_nimg (int): The current number of images (could be total images processed so far).
+            batch_size (int): The batch size used in training for this iteration.
+        """
+        ema_halflife_nimg = self.ema_halflife_kimg * 1000
+
+        if self.ema_rampup_ratio is not None:
+            ema_halflife_nimg = min(ema_halflife_nimg, cur_nimg * self.ema_rampup_ratio)
+
+        ema_beta = 0.5 ** (batch_size / max(ema_halflife_nimg, 1e-8))
+
+        for p_ema, p_net in zip(self.ema.parameters(), self.net.parameters()):
+            p_ema.copy_(p_net.detach().lerp(p_ema, ema_beta))
+
+    def apply_shadow(self):
+        """
+        Copy EMA parameters back to the original `net`.
+        This effectively overwrites the network's parameters with the EMA values.
+        """
+        for p_net, p_ema in zip(self.net.parameters(), self.ema.parameters()):
+            p_net.data.copy_(p_ema.data)
 
     def save_pretrained(self, save_directory: str, filename: str = "unet"):
-        state_dict_cpu = {k: v.cpu() for k, v in self.shadow.items()}
+        """
+        Save the EMA model parameters to a file.
+        """
+        if not os.path.exists(save_directory):
+            os.makedirs(save_directory)
+        state_dict_cpu = {k: v.cpu() for k, v in self.ema.state_dict().items()}
         output_model_file = os.path.join(save_directory, f"{filename}_ema.pt")
         torch.save(state_dict_cpu, output_model_file)
-        print(f"Model weights saved to {output_model_file}")
-
+        print(f"EMA model weights saved to {output_model_file}")
+    
     def load_pretrained(self, save_directory: str, filename: str = "unet"):
+        """
+        Load EMA model parameters from a file.
+        """
         output_model_file = os.path.join(save_directory, f"{filename}_ema.pt")
         if os.path.exists(output_model_file):
             state_dict = torch.load(output_model_file, map_location="cpu")
-            mapped_state_dict = {}
-            for name, param in state_dict.items():
-                if name in self.model.state_dict():
-                    model_param = self.model.state_dict()[name]
-                    mapped_state_dict[name] = param.to(
-                        device=model_param.device, dtype=model_param.dtype
-                    )
-                else:
-                    print(f"Warning: {name} not found in model's state_dict.")
-            self.shadow = mapped_state_dict
-            print(
-                f"EMA weights loaded from {output_model_file} and mapped to model's device and dtype."
-            )
+            self.ema.load_state_dict(state_dict, strict=False)
+            net_device = next(self.net.parameters()).device
+            net_dtype = next(self.net.parameters()).dtype
+            self.ema.to(device=net_device, dtype=net_dtype)
+            print(f"EMA weights loaded from {output_model_file}")
         else:
             print(f"No EMA weights found at {output_model_file}")
-
-    def apply_shadow(self):
-        for name, param in self.model.named_parameters():
-            if name in self.shadow:
-                param.data.copy_(self.shadow[name].data)
 
 
 def parse_args():
@@ -468,7 +487,7 @@ def main(args):
     def load_model_hook(models, input_dir):
         for _ in range(len(models)):
             model = models.pop()
-            print(type(model))
+            print(f"Loading model {type(model)} from {input_dir}")
 
             if isinstance(accelerator.unwrap_model(model), SongUNet):
                 load_model = SongUNet.from_pretrained(input_dir, filename="unet")
@@ -494,7 +513,7 @@ def main(args):
         train_time_distribution=args.train_time_distribution,
         train_time_weight=args.train_time_weight,
         criterion=args.criterion,
-        model=model,
+        velocity_field=model,
         device=accelerator.device,
         dtype=weight_dtype,
     )
@@ -550,6 +569,9 @@ def main(args):
         else:
             accelerator.print(f"Resuming from checkpoint {path}")
             accelerator.load_state(os.path.join(args.output_dir, path))
+            if args.use_ema:
+                model_ema.load_pretrained(os.path.join(args.output_dir, path), filename="unet")
+            
             global_step = int(path.split("-")[1])
 
             initial_global_step = global_step
@@ -592,7 +614,7 @@ def main(args):
                 global_step += 1
 
                 if args.use_ema:
-                    model_ema.update()
+                    model_ema.update(global_step*total_batch_size, total_batch_size)
 
                 if accelerator.is_main_process:
                     if global_step % args.checkpointing_steps == 0:
