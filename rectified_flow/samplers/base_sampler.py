@@ -53,7 +53,7 @@ class Sampler:
         rectified_flow: RectifiedFlow,
         num_steps: int | None = None,
         time_grid: list[float] | torch.Tensor | None = None,
-        record_traj_period: int = 1,
+        record_traj_period: int | None = None,
         callbacks: list[Callable] | None = None,
         num_samples: int | None = None,
     ):
@@ -85,7 +85,7 @@ class Sampler:
             self.time_grid = None
 
         self.callbacks = callbacks or []
-        self.record_traj_period = record_traj_period
+        self.record_traj_period = record_traj_period if record_traj_period else num_steps
 
         # Initialize sampling state
         self.num_samples = num_samples
