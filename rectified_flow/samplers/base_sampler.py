@@ -122,6 +122,9 @@ class Sampler:
                     len(time_grid) == num_steps + 1
                 ), "Time grid must have num_steps + 1 elements"
 
+        if self.record_traj_period is None:
+            self.record_traj_period = num_steps
+
         return num_steps, time_grid
 
     def step(self, **model_kwargs):
