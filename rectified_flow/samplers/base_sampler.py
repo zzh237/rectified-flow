@@ -74,24 +74,20 @@ class Sampler:
                 Number of samples to generate. If not provided here, it must be specified when calling `sample_loop`.
         """
         self.rectified_flow = rectified_flow
-
-        # Prepare time grid
-        if num_steps is not None or time_grid is not None:
-            self.num_steps, self.time_grid = self._prepare_time_grid(
-                num_steps, time_grid
-            )
-        else:
-            self.num_steps = None
-            self.time_grid = None
-
         self.callbacks = callbacks or []
-        self.record_traj_period = record_traj_period if record_traj_period else self.num_steps
-
-        # Initialize sampling state
         self.num_samples = num_samples
+
+        self.record_traj_period = record_traj_period
         self.x_t = None
         self.x_0 = None
         self.step_count = 0
+
+        # Prepare time grid
+        if (num_steps is not None) or (time_grid is not None):
+            self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
+        else:
+            self.num_steps = None
+            self.time_grid = None
 
     def _prepare_time_grid(self, num_steps, time_grid):
         r"""Prepare the time grid for sampling.
@@ -203,23 +199,22 @@ class Sampler:
             elif self.num_samples is not None:
                 num_samples = self.num_samples
             else:
-                raise ValueError(
-                    "num_samples must be specified if x_0 is not provided."
-                )
+                raise ValueError("num_samples must be specified if x_0 is not provided.")
         self.num_samples = num_samples
 
+        # Prepare time grid, can be overridden when calling the method
+        if (num_steps is not None) or (time_grid is not None):
+            self.num_steps, self.time_grid = self._prepare_time_grid(num_steps, time_grid)
+        else:
+            if self.time_grid is None:
+                raise ValueError("You must provide num_steps or time_grid either in __init__ or sample_loop.")
+            
         # Prepare initial state
         if x_0 is not None:
             self.x_t = x_0.clone()
         else:
             self.x_t = self.rectified_flow.sample_source_distribution(num_samples)
         self.x_0 = self.x_t.clone()
-
-        # Prepare time grid, can be overridden when calling the method
-        if num_steps is not None or time_grid is not None:
-            self.num_steps, self.time_grid = self._prepare_time_grid(
-                num_steps, time_grid
-            )
 
         self.step_count = 0
         self.time_iter = iter(self.time_grid)
