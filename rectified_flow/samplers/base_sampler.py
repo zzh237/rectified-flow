@@ -53,7 +53,7 @@ class Sampler:
         rectified_flow: RectifiedFlow,
         num_steps: int | None = None,
         time_grid: list[float] | torch.Tensor | None = None,
-        record_traj_period: int | None = None,
+        record_traj_period: int | None = 1,
         callbacks: list[Callable] | None = None,
         num_samples: int | None = None,
     ):
