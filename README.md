@@ -179,7 +179,7 @@ We provide **[Diffusers](https://github.com/huggingface/diffusers)-style** train
 
 **Results Using this Training Scripts**:
 
-- **UNet CIFAR10**: Trained for $500 \text{k}$ iterations with `batch_size=128`. You can download the model [here](). $\text{FID}_{50\text{K}}=4.308$.
+- **UNet CIFAR10**: Trained for $500 \text{k}$ iterations with `batch_size=128`. You can download the model [here](https://drive.google.com/file/d/1_LeFSa25iYKGfsW7sbRFEabzEjRgDqYy/view?usp=sharing).
 - **DiT CIFAR10**: Trained for $1000 \text{k}$ iterations with `batch_size=128`. You can download the model [here](). $\text{FID}_{50\text{K}}=3.678$.
 
 **Loading a Pretrained Model**:
