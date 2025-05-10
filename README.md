@@ -72,7 +72,7 @@ pip install -e .
 <img src="https://github.com/lqiang67/rectified-flow/blob/main/assets/rf_toy_illustration.png?raw=true" alt="Header" style="width: 100%; height: auto;">
 </div>
 
-Consider the task of learning an ODE model $\mathrm d Z_t = v_t(Z_t)\mathrm d t$ that transforms a noise distribution $X_0 \sim \pi_0$ into a data distribution $X_1 \sim \pi_1$. We begin by drawing random pairs $(X_0, X_1)$, where ($X_0$ and $X_1$ are independent by default, and then construct the interpolation $X_t = t X_1 + (1 - t) X_0.$ The rectified flow velocity is learned by minimizing
+Consider the task of learning an ODE model $\mathrm d Z_t = v_t(Z_t)\mathrm d t$ that transforms a noise distribution $X_0 \sim \pi_0$ into a data distribution $X_1 \sim \pi_1$. We begin by drawing random pairs $(X_0, X_1)$, where $X_0$ and $X_1$ are independent by default, and then construct the interpolation $X_t = t X_1 + (1 - t) X_0.$ The rectified flow velocity is learned by minimizing
 
 $$
 \min_v \mathbb{E}_{X_0, X_1, t} \left[ \left\lVert \frac{\mathrm d}{\mathrm d t} X_t - v_t(X_t, t) \right\rVert^2 \right]
