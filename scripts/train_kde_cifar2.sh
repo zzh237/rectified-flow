@@ -7,7 +7,7 @@ set -e # Exit immediately if a command exits with a non-zero status.
 # when you run the script (e.g., `OUTPUT_DIR=/path/to/output DATA_ROOT=/path/to/data ./run_kde_cifar.sh`)
 
 # Default values (modify as needed or ensure they are set in your environment)
-: "${OUTPUT_DIR:="./output_kde_cifar_from_script"}" # Directory to save generated samples and metrics
+: "${OUTPUT_DIR:="./kde_output"}" # Directory to save generated samples and metrics
 : "${DATA_ROOT:="./data"}"                         # Root directory of your CIFAR-10 dataset
 
 # --- Create directories if they don't exist ---
